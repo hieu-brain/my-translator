@@ -1,13 +1,8 @@
 pub mod audio;
-pub mod edge_tts;
-pub mod google_free_tts;
+pub mod claude_cli;
 pub mod http_client;
 pub mod local_pipeline;
-pub mod local_tts;
-pub mod microsoft_tts;
-pub mod tiktok_tts;
-pub mod openai_realtime;
-pub mod qwen_realtime;
+pub mod project_context;
 pub mod session_store;
 pub mod settings;
 pub mod transcript;

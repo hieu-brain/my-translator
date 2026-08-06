@@ -36,26 +36,9 @@ hex = "0.4"
 rand = "0.8"
 tokio = { version = "1", features = ["sync", "rt", "macros", "time"] }
 rubato = "0.16"
-# Local offline TTS: Piper (VITS) via sherpa-onnx (static-linked, no dylib bundling).
-sherpa-onnx = "1.13.3"
 tauri-plugin-dialog = "2"
-# Model archive extraction (.tar.bz2) for downloaded Piper voices.
-tar = "0.4"
-bzip2 = "0.4"
 
 # macOS: ScreenCaptureKit for system audio
 [target.'cfg(target_os = "macos")'.dependencies]
 tauri = { version = "2", features = ["macos-private-api"] }
 screencapturekit = "1.5"
-
-# Windows: WASAPI for system audio (legacy loopback only)
-[target.'cfg(target_os = "windows")'.dependencies]
-windows = { version = "0.58", features = [
-  "Win32_Media_Audio",
-  "Win32_System_Com",
-  "Win32_Foundation",
-] }
-
-[target.'cfg(any(target_os = "macos", windows, target_os = "linux"))'.dependencies]
-tauri-plugin-updater = "2.10.0"
-tauri-plugin-process = "2"

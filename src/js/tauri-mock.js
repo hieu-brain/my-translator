@@ -1,65 +1,80 @@
 /**
  * Mock Tauri APIs for browser-only UI testing (dev server on :3111).
  * Loaded before app.js. Dev-only: activates ONLY when the real Tauri runtime is
- * absent AND we are on the dev port — so it can never shadow window.__TAURI__ in the
- * packaged app (production origin is tauri://localhost or http://tauri.localhost, no :3111).
+ * absent AND we are on the dev port — so it can never shadow window.__TAURI__ in
+ * the packaged app (production origin is tauri://localhost, no :3111).
  */
 
 if (!window.__TAURI__ && location.port === '3111') {
     console.warn('[tauri-mock] Browser dev mode — Tauri APIs are mocked');
 
     const mockSettings = {
-        translation_mode: 'soniox',
+        soniox_api_key: '',
         source_language: 'auto',
         target_language: 'vi',
-        soniox_api_key: '',
-        elevenlabs_api_key: '',
-        google_tts_api_key: '',
-        openai_api_key: '',
-        qwen_api_key: '',
-        tts_provider: 'edge',
-        edge_tts_voice: 'vi-VN-HoaiMyNeural',
-        edge_tts_speed: 50,
-        google_tts_voice: 'vi-VN-Chirp3-HD-Aoede',
-        google_tts_speed: 1.0,
-        // New free online providers (Trudio-style)
-        microsoft_v2_voice: 'vi-VN-HoaiMyNeural',
-        microsoft_v2_speed: 20,
-        google_free_voice: 'vi-VN',
-        google_free_api_key: '',
-        google_free_speed: 1.0,
-        tiktok_voice: 'BV074_streaming',
-        tiktok_speed: 1.0,
-        tiktok_session_id: '',
-        local_tts_voice: 'vi_VN-vais1000-medium',
-        local_tts_speed: 1.0,
-        local_tts_models_dir: '',
+        translation_type: 'two_way',
+        language_a: 'ja',
+        language_b: 'vi',
+        language_hints_strict: false,
+        endpoint_delay: 3000,
+        audio_source: 'system',
+        overlay_opacity: 0.9,
         font_size: 16,
+        max_lines: 5,
+        show_original: true,
+        furigana_enabled: true,
+        translation_mode: 'soniox',
+        custom_context: null,
+
+        llm_backend: 'claude-cli',
+        anthropic_api_key: '',
+        claude_cli_path: '',
+        summary_model: 'claude-haiku-4-5',
+        reply_model: 'claude-sonnet-5',
+        auto_summary_enabled: true,
+        auto_summary_interval_sec: 120,
+        auto_summary_min_segments: 20,
+        default_notes_dir: '',
+        meeting_profiles: [
+            {
+                id: 'p-demo',
+                name: 'my-cms',
+                project_path: '/Users/dev/Projects/my-cms',
+                backlog_project_key: 'MYCMS',
+                note_files: [],
+            },
+        ],
+        active_profile_id: 'p-demo',
+        backlog_space: '',
+        backlog_api_key: '',
     };
 
-    // Sample local (Piper) voice catalog so the download/delete UI can be exercised.
-    const mockLocalVoices = [
-        { id: 'vi_VN-vais1000-medium', display: 'Tiếng Việt — VAIS1000 (medium)', lang: 'vi', url: '', approxSizeBytes: 67154040, sampleRate: 22050, installed: true, installedBytes: 67154040, imported: false },
-        { id: 'vi_VN-25hours_single-low', display: 'Tiếng Việt — 25 hours (low)', lang: 'vi', url: '', approxSizeBytes: 67059380, sampleRate: 16000, installed: false, installedBytes: null, imported: false },
-        { id: 'en_US-ryan-medium', display: 'English (US) — Ryan (medium)', lang: 'en', url: '', approxSizeBytes: 63000000, sampleRate: 22050, installed: true, installedBytes: 63000000, imported: false },
-        { id: 'en_US-lessac-medium', display: 'English (US) — Lessac (medium)', lang: 'en', url: '', approxSizeBytes: 67230653, sampleRate: 22050, installed: false, installedBytes: null, imported: false },
-        // Sample imported (local) voices — always shown regardless of language filter.
-        { id: 'tranthanh3870', display: 'tranthanh3870', lang: '', url: '', approxSizeBytes: 0, sampleRate: 0, installed: true, installedBytes: 63000000, imported: true },
-        { id: 'mytam2', display: 'mytam2', lang: '', url: '', approxSizeBytes: 0, sampleRate: 0, installed: true, installedBytes: 63000000, imported: true },
+    const mockSessions = [
+        {
+            id: '2026-08-05-1400', title: 'Họp CMS renewal — khách hàng A',
+            created_at: '2026-08-05T14:00', duration_sec: 2520, engine: 'soniox',
+            source_lang: 'ja', target_lang: 'vi', segment_count: 184, chunk_count: 1,
+            has_legacy_only: false,
+        },
+        {
+            id: '2026-08-04-0930', title: 'Daily standup đội dev',
+            created_at: '2026-08-04T09:30', duration_sec: 900, engine: 'soniox',
+            source_lang: 'ja', target_lang: 'vi', segment_count: 61, chunk_count: 1,
+            has_legacy_only: false,
+        },
     ];
 
-    // Tiny decodable silent WAV (8kHz mono, ~60ms) so Read mode's reader→player loop can
-    // advance in browser dev (empty base64 would fail decodeAudioData → every chunk errors).
-    const mockSilentWav = 'UklGRuQDAABXQVZFZm10IBAAAAABAAEAQB8AAIA+AAACABAAZGF0YcADAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=';
+    const mockSummary = `CHỦ ĐỀ: Đánh giá công số renew CMS thay vì migration
+QUYẾT ĐỊNH: Ưu tiên hướng renew, cần ước tính sơ bộ trước khi chốt
+ACTIONS:
+- Gửi ước tính sơ bộ · Minh · thứ Tư tuần sau
+- Gửi danh sách chức năng hiện có · Tanaka`;
 
-    // Sample voices so the Microsoft v2 dynamic-populate path can be exercised in-browser.
-    const mockMsVoices = JSON.stringify([
-        { short_name: 'vi-VN-HoaiMyNeural', friendly_name: 'HoaiMy', gender: 'Female', locale: 'vi-VN' },
-        { short_name: 'vi-VN-NamMinhNeural', friendly_name: 'NamMinh', gender: 'Male', locale: 'vi-VN' },
-        { short_name: 'en-US-JennyNeural', friendly_name: 'Jenny', gender: 'Female', locale: 'en-US' },
-        { short_name: 'en-US-GuyNeural', friendly_name: 'Guy', gender: 'Male', locale: 'en-US' },
-        { short_name: 'en-GB-SoniaNeural', friendly_name: 'Sonia', gender: 'Female', locale: 'en-GB' },
-    ]);
+    const mockReplies = `VI: Được, tôi sẽ gửi ước tính sơ bộ trước thứ Tư tuần sau.
+JA: はい、来週の水曜日までに概算をお送りします。
+
+VI: Tuần sau hơi gấp — cho tôi thêm 2 ngày được không?
+JA: 来週は少し厳しいので、あと2日いただけますか？`;
 
     window.__TAURI__ = {
         core: {
@@ -72,49 +87,59 @@ if (!window.__TAURI__ && location.port === '3111') {
                         Object.assign(mockSettings, args?.newSettings || {});
                         return null;
                     case 'get_platform_info':
-                        return { os: 'macos', arch: 'aarch64' };
-                    case 'microsoft_list_voices':
-                        return mockMsVoices;
-                    case 'local_tts_list_models':
-                        return mockLocalVoices;
-                    case 'local_tts_models_dir_path':
-                        return mockSettings.local_tts_models_dir ||
-                            '/Users/dev/Library/Application Support/com.personal.translator/piper-models';
-                    case 'local_tts_download_model': {
-                        // Simulate progress then mark installed.
-                        const ch = args?.onProgress;
-                        const id = args?.id;
-                        if (ch && typeof ch.onmessage === 'function') {
-                            [25, 50, 75, 100].forEach((pct) =>
-                                ch.onmessage({ id, phase: 'downloading', received: pct, total: 100, message: null })
-                            );
-                            ch.onmessage({ id, phase: 'done', received: 100, total: 100, message: null });
-                        }
-                        const v = mockLocalVoices.find((m) => m.id === id);
-                        if (v) v.installed = true;
-                        return null;
+                        return '{"os":"macos","arch":"aarch64","is_arm_hardware":true,"version":"0.9.1"}';
+                    case 'check_claude_cli':
+                        return '2.1.221 (Claude Code)';
+                    case 'claude_cli_prompt': {
+                        // Echo back plausible shapes so the panel rendering can be
+                        // exercised without a real model call.
+                        await new Promise((r) => setTimeout(r, 400));
+                        const isReply = /CÂU CẦN TRẢ LỜI/.test(args?.prompt || '');
+                        return { text: isReply ? mockReplies : mockSummary, duration_ms: 400 };
                     }
-                    case 'local_tts_delete_model': {
-                        const v = mockLocalVoices.find((m) => m.id === args?.id);
-                        if (v) v.installed = false;
+                    case 'read_project_context':
+                        return {
+                            root: args?.projectPath || '/Users/dev/Projects/my-cms',
+                            files: [{ path: 'CLAUDE.md', content: '# my-cms\nLegacy CMS…', truncated: false }],
+                            total_bytes: 32, skipped: [],
+                        };
+                    case 'read_note_files':
+                        return [];
+                    case 'meeting_notes_dir':
+                        return args?.projectPath
+                            ? `${args.projectPath.replace(/\/$/, '')}-meeting-notes`.replace(
+                                /\/([^/]+)-meeting-notes$/, '/$1-meeting-notes')
+                            : (args?.defaultNotesDir || '/Users/dev/Documents/meeting-notes');
+                    case 'save_meeting_note':
+                        return '/Users/dev/Projects/my-cms-meeting-notes/2026-08-05-hop-cms.md';
+                    case 'open_path_in_finder':
                         return null;
-                    }
-                    // TTS synth commands: return a tiny decodable silent WAV so Read mode's
-                    // reader→player loop can advance in browser dev (real audio only in Tauri).
-                    case 'edge_tts_speak':
-                    case 'google_free_tts_speak':
-                    case 'tiktok_tts_speak':
-                    case 'local_tts_speak':
-                        return mockSilentWav;
+                    case 'list_sessions':
+                        return mockSessions;
+                    case 'search_sessions':
+                        return mockSessions.filter((s) =>
+                            s.title.toLowerCase().includes((args?.query || '').toLowerCase()));
+                    case 'read_session':
+                        return { md: '# Session\n\n[14:00:12] Xin chào.', json: { title: 'Session demo' } };
+                    case 'read_legacy_session':
+                        return 'legacy transcript';
+                    case 'export_session_srt':
+                    case 'export_session_txt':
+                        return 'demo export';
+                    case 'delete_session':
+                    case 'update_session_title':
+                    case 'save_session':
+                    case 'open_transcript_dir':
                     case 'start_capture':
                     case 'stop_capture':
-                    case 'start_mic_capture':
-                    case 'stop_mic_capture':
+                    case 'stop_local_pipeline':
+                    case 'send_audio_to_pipeline':
+                    case 'exit_app':
                         return null;
+                    case 'check_mlx_setup':
+                        return '{"ready":true}';
                     case 'list_transcripts':
                         return [];
-                    case 'check_update':
-                        return null;
                     default:
                         console.warn('[tauri-mock] unhandled command:', cmd);
                         return null;
@@ -125,19 +150,27 @@ if (!window.__TAURI__ && location.port === '3111') {
             },
         },
         dialog: {
-            // Browser dev: pretend the user picked a folder (null would mean "cancelled").
-            open: async () => '/Users/dev/piper-models',
+            open: async () => '/Users/dev/Projects/my-cms',
+        },
+        opener: {
+            openUrl: async (url) => window.open(url, '_blank'),
         },
         window: {
+            LogicalPosition: class { constructor(x, y) { this.x = x; this.y = y; } },
+            LogicalSize: class { constructor(width, height) { this.width = width; this.height = height; } },
             getCurrentWindow: () => ({
                 setAlwaysOnTop: async () => {},
                 outerPosition: async () => ({ x: 100, y: 100 }),
-                innerSize: async () => ({ width: 800, height: 600 }),
+                innerSize: async () => ({ width: 900, height: 640 }),
+                scaleFactor: async () => 1,
                 setPosition: async () => {},
                 setSize: async () => {},
+                startResizeDragging: async () => {},
                 close: async () => { window.close(); },
                 minimize: async () => {},
-                toggleMaximize: async () => {},
+                onCloseRequested: async () => {},
+                onResized: async () => {},
+                listen: async () => {},
             }),
         },
     };

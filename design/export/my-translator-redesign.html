@@ -1,0 +1,904 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>My Translator</title>
+<style>
+/* ═════════════════════════════════════════════════════════════
+   My Translator — Meeting Edition redesign
+   Dark glass + M3 tonal roles (periwinkle primary / mint secondary)
+   Offline: system font stack only, no CDN.
+   ═════════════════════════════════════════════════════════════ */
+*,*::before,*::after{margin:0;padding:0;box-sizing:border-box}
+:root{
+  /* M3-style color roles (dark) */
+  --primary:#a5a8ff;
+  --on-primary:#22267a;
+  --primary-container:rgba(165,168,255,.2);
+  --on-primary-container:#a5a8ff;
+  --secondary:#7fd6c2;
+  --secondary-container:rgba(127,214,194,.16);
+  --tertiary:#ffd18a;
+  --tertiary-container:rgba(255,209,138,.16);
+  --error:#ff5449;
+  --error-container:rgba(255,84,73,.18);
+  --surface:rgba(19,18,23,.92);
+  --surface-dim:rgba(29,28,35,.55);
+  --surface-container:rgba(39,38,46,.9);
+  --surface-tint:rgba(231,228,236,.05);
+  --surface-tint-hover:rgba(231,228,236,.09);
+  --on-surface:#e7e4ec;
+  --on-surface-variant:#a9a5b3;
+  --on-surface-dim:rgba(231,228,236,.4);
+  --outline:rgba(231,228,236,.1);
+  --outline-soft:rgba(231,228,236,.07);
+  /* speakers */
+  --spk-a:#a5a8ff; --spk-a-bg:rgba(165,168,255,.16);
+  --spk-b:#7fd6c2; --spk-b-bg:rgba(127,214,194,.16);
+  /* legacy aliases (original stylesheet names still referenced by app JS/classes) */
+  --accent:var(--primary); --accent-hover:#8f93ff; --accent-glow:var(--primary-container);
+  --success:#7fd6c2; --warning:var(--tertiary);
+  --text-primary:var(--on-surface); --text-secondary:var(--on-surface-variant);
+  --text-muted:rgba(231,228,236,.35); --text-provisional:rgba(231,228,236,.42);
+  --bg-input:var(--surface-container); --bg-hover:var(--surface-tint-hover); --bg-glass:var(--surface-tint);
+  --border-subtle:var(--outline-soft); --border-light:var(--outline);
+  --control-bar-height:40px;
+  --radius-sm:7px; --radius-md:10px; --radius-lg:14px;
+  --transition-fast:120ms ease;
+  --transcript-font-size:16px;
+  --transcript-font-color:#e7e4ec;
+}
+html,body{width:100%;height:100%;overflow:hidden;
+  font-family:-apple-system,BlinkMacSystemFont,'SF Pro Text','Segoe UI','Hiragino Sans','Yu Gothic',sans-serif;
+  font-size:14px;color:var(--on-surface);background:transparent;-webkit-font-smoothing:antialiased;user-select:none}
+a{color:var(--primary);text-decoration:none}a:hover{color:var(--accent-hover)}
+.view{display:none;width:100%;height:100%;flex-direction:column}
+.view.active{display:flex;animation:viewFadeIn .2s ease}
+@keyframes viewFadeIn{from{opacity:0}to{opacity:1}}
+@keyframes recPulse{0%,100%{box-shadow:0 0 0 0 rgba(255,84,73,.55)}50%{box-shadow:0 0 0 5px rgba(255,84,73,0)}}
+@keyframes dotBlink{0%,80%,100%{opacity:.2}40%{opacity:1}}
+
+/* ─── Overlay window ─── */
+#overlay-view{position:relative;background:var(--surface);border-radius:var(--radius-lg);
+  border:1px solid var(--outline);backdrop-filter:blur(28px) saturate(140%);
+  -webkit-backdrop-filter:blur(28px) saturate(140%);overflow:hidden}
+
+/* ─── Header / drag region ─── */
+#drag-region{flex-shrink:0;height:var(--control-bar-height);border-bottom:1px solid var(--outline-soft);background:var(--surface-dim)}
+.control-bar{display:flex;align-items:center;height:100%;padding:0 8px 0 10px;gap:8px}
+.activity-switcher{display:flex;align-items:center;gap:2px;background:var(--surface-tint);border-radius:8px;padding:2px;-webkit-app-region:no-drag}
+.activity-tab{position:relative;border:none;border-radius:6px;padding:4px 10px;font-size:11px;font-weight:600;background:transparent;color:var(--on-surface-variant);white-space:nowrap;cursor:pointer;font-family:inherit}
+.activity-tab:hover{color:var(--on-surface)}
+.activity-tab.active{background:var(--primary-container);color:var(--primary)}
+.live-tab-badge{display:none;position:absolute;top:1px;right:1px;width:6px;height:6px;border-radius:50%;background:var(--error)}
+.live-tab-badge.visible{display:block}
+.toolbar-spacer{flex:1;height:100%}
+.live-lang{display:inline-flex;align-items:center;gap:5px;padding:3px 9px;border-radius:999px;background:var(--surface-tint);
+  font-size:10px;font-weight:600;letter-spacing:.06em;color:var(--on-surface-variant);font-variant-numeric:tabular-nums;white-space:nowrap;-webkit-app-region:no-drag}
+.live-lang b{color:var(--primary);font-weight:600}
+.icon-btn{display:flex;align-items:center;justify-content:center;width:26px;height:26px;border:none;border-radius:6px;
+  background:transparent;color:var(--on-surface-variant);cursor:pointer;transition:all var(--transition-fast);-webkit-app-region:no-drag;position:relative}
+.icon-btn:hover{background:var(--surface-tint-hover);color:var(--on-surface)}
+.icon-btn:active{transform:scale(.94)}
+.icon-btn.small{width:24px;height:24px}
+#btn-pin.active{background:var(--primary-container);color:var(--primary)}
+.close-btn:hover{background:var(--error-container);color:#ffb4ab}
+.settings-badge{position:absolute;top:3px;right:3px;width:7px;height:7px;background:var(--error);border-radius:50%}
+
+/* ─── Live layout: adaptive grid ─── */
+.activity-panel:not(.active){display:none!important}
+#transcript-container{flex:1;min-height:0;display:grid;overflow:hidden;
+  grid-template-areas:"transcript" "ai" "actions";grid-template-rows:1fr auto auto}
+@media (min-width:780px){
+  #transcript-container{grid-template-areas:"transcript ai" "actions ai";grid-template-columns:1fr 300px;grid-template-rows:1fr auto}
+  #ai-panel{border-left:1px solid var(--outline-soft);border-top:none!important}
+  #ai-panel .ai-head-toggle{pointer-events:none}
+  #ai-panel .ai-chevron{display:none}
+  #ai-panel .ai-body{display:block!important;max-height:none!important}
+}
+
+/* ─── Transcript ─── */
+#transcript-content{grid-area:transcript;min-height:0;overflow-y:auto;overflow-x:hidden;padding:10px 12px 4px}
+#transcript-content::-webkit-scrollbar{width:4px}
+#transcript-content::-webkit-scrollbar-thumb{background:var(--outline);border-radius:2px}
+.transcript-flow{font-size:var(--transcript-font-size);color:var(--transcript-font-color);line-height:1.5;word-wrap:break-word}
+.seg-block{display:block;margin-bottom:6px;padding:7px 10px 8px;border-radius:10px;cursor:pointer;transition:background var(--transition-fast)}
+.seg-block:hover{background:var(--surface-tint)}
+.seg-block.selected{background:rgba(165,168,255,.1)}
+.speaker-row{display:flex;align-items:center;gap:7px;margin:2px 0 4px}
+.speaker-avatar{flex:none;width:21px;height:21px;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;font-size:10.5px;font-weight:600}
+.speaker-label{background:none;border:none;padding:0;font-size:12px;font-weight:600;letter-spacing:.02em;cursor:text;font-family:inherit;border-bottom:1px dashed transparent}
+.speaker-label:hover{border-bottom-color:currentColor}
+.spk-a .speaker-avatar{background:var(--spk-a-bg);color:var(--spk-a)}.spk-a .speaker-label{color:var(--spk-a)}
+.spk-b .speaker-avatar{background:var(--spk-b-bg);color:var(--spk-b)}.spk-b .speaker-label{color:var(--spk-b)}
+.speaker-name-input{width:90px;background:var(--surface-tint-hover);border:1px solid var(--primary);border-radius:5px;color:var(--on-surface);font-size:12px;font-weight:600;padding:2px 6px;font-family:inherit}
+.lang-badge{display:inline-block;font-size:8.5px;font-weight:600;letter-spacing:.09em;padding:2px 6px;border-radius:999px;background:var(--surface-tint-hover);color:var(--on-surface-variant)}
+.lang-badge.target{background:var(--primary-container);color:var(--primary)}
+.lang-arrow{color:#8b8794}
+.seg-time{margin-left:auto;font-size:9.5px;color:rgba(231,228,236,.28);font-variant-numeric:tabular-nums}
+.seg-translated{display:block;color:var(--transcript-font-color);font-weight:500;text-wrap:pretty}
+.seg-original{display:block;color:var(--on-surface-dim);font-weight:400;font-size:.74em;margin-top:2px;text-wrap:pretty}
+.single-view .seg-original{display:none}
+/* furigana */
+.transcript-flow rt{display:none;font-size:.5em;font-weight:400;color:rgba(231,228,236,.5);font-style:normal}
+body.furigana-on .transcript-flow rt{display:revert}
+body.furigana-on .seg-block .ja{line-height:1.9}
+.tk{position:relative}
+.tk[data-gloss]{border-bottom:1px dotted rgba(231,228,236,.3);cursor:pointer}
+.tk-popover{position:absolute;bottom:calc(100% + 8px);left:50%;transform:translateX(-50%);z-index:40;display:none;flex-direction:column;gap:2px;
+  background:var(--surface-container);border:1px solid rgba(231,228,236,.16);border-radius:10px;padding:8px 12px;white-space:nowrap;font-style:normal}
+.tk.pop-open .tk-popover{display:flex}
+.tk-popover .tk-word{font-size:14px;font-weight:600;color:var(--on-surface)}
+.tk-popover .tk-reading{font-size:11px;color:var(--primary);margin-left:8px}
+.tk-popover .tk-gloss{font-size:11px;color:var(--secondary)}
+/* provisional */
+.seg-provisional-block{padding:7px 10px 10px}
+.seg-provisional{display:block;color:var(--text-provisional);font-style:italic;font-size:.74em;line-height:1.5}
+.prov-badge{background:var(--tertiary-container);color:var(--tertiary)}
+.prov-dots span{display:inline-block;color:var(--primary);animation:dotBlink 1.2s infinite}
+.prov-dots span:nth-child(2){animation-delay:.2s}.prov-dots span:nth-child(3){animation-delay:.4s}
+.low-confidence{border-left:2px solid rgba(255,209,138,.5);padding-left:6px;color:rgba(231,228,236,.7)}
+/* placeholder / listening */
+.transcript-placeholder{display:none;flex-direction:column;align-items:center;justify-content:center;height:100%;gap:12px;color:var(--text-muted)}
+.transcript-placeholder p{font-size:13px}
+.shortcut-hint{font-size:11px!important;opacity:.6;background:var(--surface-tint);padding:2px 10px!important;border-radius:4px;border:1px solid var(--outline-soft)}
+
+/* ─── AI assistant panel (new) ─── */
+#ai-panel{grid-area:ai;min-height:0;border-top:1px solid var(--outline-soft);background:var(--surface-dim);display:flex;flex-direction:column}
+.ai-head-toggle{display:flex;align-items:center;gap:8px;padding:8px 12px;border:none;background:transparent;color:var(--on-surface);cursor:pointer;text-align:left;font-family:inherit;width:100%}
+.ai-title{font-size:12px;font-weight:600}
+.ai-badge{font-size:10px;font-weight:500;padding:2px 7px;border-radius:999px;background:var(--primary-container);color:var(--primary)}
+.ai-chevron{margin-left:auto;color:var(--on-surface-variant);transition:transform 150ms;display:inline-flex}
+#ai-panel.open .ai-chevron{transform:rotate(180deg)}
+.ai-body{display:none;max-height:240px;overflow-y:auto;padding:2px 12px 12px}
+#ai-panel.open .ai-body{display:block}
+.ai-section-label{display:block;font-size:9px;font-weight:500;letter-spacing:.12em;text-transform:uppercase;color:rgba(231,228,236,.38);margin-bottom:8px}
+.ai-summary-head{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:10px}
+#btn-ai-summarize{display:inline-flex;align-items:center;gap:5px;flex:none;white-space:nowrap;padding:4px 10px;border:1px solid rgba(165,168,255,.5);border-radius:999px;background:transparent;color:var(--primary);font-size:10.5px;font-weight:600;cursor:pointer;font-family:inherit}
+#btn-ai-summarize:hover{background:var(--primary-container)}
+.ai-row{display:flex;gap:8px;align-items:baseline;margin-bottom:8px}
+.ai-row-label{flex:none;width:64px;font-size:9px;font-weight:600;letter-spacing:.1em;color:rgba(231,228,236,.38)}
+.ai-row-text{font-size:11.5px;line-height:1.5;color:rgba(231,228,236,.8)}
+.ai-action{display:flex;gap:6px;align-items:baseline;margin-bottom:5px}
+.ai-check{flex:none;width:10px;height:10px;border-radius:3px;transform:translateY(1px)}
+.ai-sep{height:1px;background:var(--outline-soft);margin:12px 0}
+.ai-selected-quote{font-size:10.5px;line-height:1.5;color:rgba(231,228,236,.45);border-left:2px solid var(--primary);padding-left:8px;margin-bottom:8px}
+.ai-reply{position:relative;background:var(--surface-container);border:1px solid var(--outline-soft);border-radius:10px;padding:9px 34px 9px 11px;margin-bottom:6px}
+.ai-reply-vi{font-size:12px;line-height:1.5;font-weight:500;color:var(--on-surface);text-wrap:pretty}
+.ai-reply-ja{font-size:10.5px;line-height:1.5;color:rgba(231,228,236,.45);margin-top:3px;text-wrap:pretty}
+.ai-reply-copy{position:absolute;top:7px;right:7px;width:22px;height:22px;border:none;border-radius:6px;background:transparent;color:rgba(231,228,236,.35);cursor:pointer;display:flex;align-items:center;justify-content:center}
+.ai-reply-copy:hover{background:var(--surface-tint-hover);color:var(--on-surface)}
+.ai-hint-empty{font-size:11px;line-height:1.5;color:var(--text-muted);font-style:italic}
+
+/* ─── Action row ─── */
+.live-action-row{grid-area:actions;display:flex;align-items:center;gap:7px;padding:8px 10px;border-top:1px solid var(--outline-soft);background:var(--surface-dim)}
+.primary-action-btn{display:inline-flex;align-items:center;gap:6px;padding:6px 14px;border:none;border-radius:8px;
+  background:var(--primary);color:var(--on-primary);font-size:12px;font-weight:600;cursor:pointer;transition:background var(--transition-fast);font-family:inherit;white-space:nowrap}
+.primary-action-btn:hover{background:var(--accent-hover)}
+.action-btn{display:flex;align-items:center;justify-content:center;width:28px;height:28px;border:none;border-radius:8px;
+  background:var(--surface-tint-hover);color:var(--on-surface-variant);cursor:pointer;transition:all var(--transition-fast);-webkit-app-region:no-drag}
+.action-btn:hover{color:var(--on-surface);background:rgba(231,228,236,.14)}
+.action-btn:disabled{opacity:.4;pointer-events:none}
+.status-area{display:inline-flex;align-items:center;gap:5px}
+.status-dot{width:6px;height:6px;border-radius:50%;flex-shrink:0;background:var(--text-muted)}
+.status-dot.connected{background:var(--error);animation:recPulse 2s infinite}
+.status-dot.connecting{background:var(--tertiary)}
+.status-dot.error{background:var(--error)}
+.status-text{font-size:10px;font-weight:500;color:var(--on-surface-variant);font-variant-numeric:tabular-nums;white-space:nowrap}
+.source-select{max-width:96px;padding:4px 6px;border-radius:7px;border:1px solid var(--outline);background:var(--surface-container);color:var(--on-surface-variant);font-size:10.5px;font-weight:500;cursor:pointer;font-family:inherit}
+.font-controls{display:flex;align-items:center;gap:2px;background:var(--surface-tint);border-radius:7px;padding:2px 3px}
+.float-btn{width:22px;height:20px;border:none;border-radius:5px;background:transparent;color:var(--on-surface-variant);font-size:10px;font-weight:600;cursor:pointer;font-family:inherit}
+.float-btn:hover{color:var(--on-surface);background:rgba(231,228,236,.1)}
+.font-size-label{color:rgba(231,228,236,.35);font-size:9.5px;min-width:16px;text-align:center;font-variant-numeric:tabular-nums}
+.toggle-chip{flex:none;white-space:nowrap;padding:4px 9px;border:none;border-radius:7px;background:var(--surface-tint);color:var(--on-surface-variant);font-size:10.5px;font-weight:600;cursor:pointer;font-family:inherit}
+.toggle-chip.active{background:var(--primary-container);color:var(--primary)}
+/* more menu */
+.more-menu-wrap{position:relative}
+.more-menu{position:absolute;bottom:calc(100% + 6px);right:0;min-width:210px;padding:6px;border-radius:10px;background:var(--surface-container);border:1px solid var(--outline);z-index:50}
+.more-menu-item{display:block;width:100%;padding:7px 10px;border:none;border-radius:6px;background:none;color:var(--on-surface);font-size:12px;text-align:left;cursor:pointer;font-family:inherit}
+.more-menu-item:hover{background:var(--surface-tint-hover)}
+.more-menu-sep{height:1px;margin:5px 4px;background:var(--outline-soft)}
+.more-menu-label{padding:2px 10px 4px;font-size:10px;text-transform:uppercase;letter-spacing:.4px;color:var(--text-muted)}
+.engine-pill{display:inline-flex;background:var(--surface-tint);border:1px solid var(--outline-soft);border-radius:999px;padding:2px;margin:2px 10px 6px}
+.engine-pill-btn{display:inline-flex;align-items:center;gap:4px;padding:3px 8px;font-size:10.5px;font-weight:500;background:transparent;border:none;border-radius:999px;color:var(--on-surface-variant);cursor:pointer;font-family:inherit}
+.engine-pill-btn.active{background:var(--primary-container);color:var(--primary)}
+
+/* ─── Mini mode (short window) ─── */
+@media (max-height:330px){
+  #drag-region,#ai-panel{display:none}
+  .live-action-row{position:absolute;top:6px;right:8px;z-index:20;border:none;background:transparent;padding:0;gap:7px}
+  .live-action-row>*{display:none}
+  .live-action-row .status-area,.live-action-row #btn-start{display:inline-flex}
+  .live-action-row #btn-start{padding:4px 8px}
+  .live-action-row #btn-start .btn-start-text{display:none}
+  #transcript-content{padding:12px 16px 14px;font-size:calc(var(--transcript-font-size) + 5px)}
+  .seg-block{margin-bottom:4px;padding:2px 0}
+  .seg-block:hover,.seg-block.selected{background:transparent}
+  .speaker-row{display:none}
+  .seg-original{display:none}
+  .transcript-flow>.seg-block:not(:nth-last-child(-n+3)){display:none}
+}
+
+/* ─── Library ─── */
+#library-panel{flex-direction:column;overflow:hidden}
+#library-panel.active{display:flex;flex:1;min-height:0}
+.sessions-body{flex:1;overflow-y:auto;padding:10px 12px 12px;min-height:0;display:flex;flex-direction:column;gap:8px}
+.sessions-body::-webkit-scrollbar{width:4px}
+.sessions-body::-webkit-scrollbar-thumb{background:var(--outline);border-radius:2px}
+.sessions-search-row{display:flex;gap:6px;-webkit-app-region:no-drag}
+.sessions-search-input{flex:1;padding:7px 11px;border:1px solid var(--outline);border-radius:8px;background:var(--surface-container);color:var(--on-surface);font-size:12px;outline:none;font-family:inherit}
+.sessions-search-input:focus{border-color:var(--primary)}
+#sessions-list{display:flex;flex-direction:column;gap:4px}
+.session-item{display:flex;flex-direction:column;gap:4px;padding:9px 11px;border-radius:10px;border:none;background:var(--surface-tint);cursor:pointer;transition:background var(--transition-fast);text-align:left;font-family:inherit}
+.session-item:hover{background:var(--surface-tint-hover)}
+.session-item-row1{display:flex;align-items:center;gap:7px;min-width:0}
+.session-item-title{flex:1;font-size:12px;font-weight:600;color:var(--on-surface);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
+.session-badge{flex:none;font-size:8.5px;font-weight:600;letter-spacing:.08em;padding:2px 6px;border-radius:999px;background:var(--primary-container);color:var(--primary);white-space:nowrap}
+.session-badge.badge-engine{background:var(--surface-tint-hover);color:var(--on-surface-variant);letter-spacing:0;font-size:9px;font-weight:500}
+.session-item-row2{display:flex;align-items:center;gap:8px}
+.session-meta-dim{font-size:10px;color:var(--on-surface-variant);font-variant-numeric:tabular-nums}
+.sessions-loading,.sessions-empty{padding:24px 12px;text-align:center;color:var(--text-muted);font-size:12px}
+/* session viewer */
+#session-viewer{overflow:hidden;padding:0}
+.session-viewer-header{display:flex;align-items:center;gap:8px;padding:6px 8px;border-bottom:1px solid var(--outline-soft);flex-shrink:0;background:var(--surface-dim)}
+.session-viewer-title-text{flex:1;font-size:11px;color:var(--text-muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.session-copy-btn,.btn-secondary.small{display:flex;align-items:center;gap:4px;height:26px;padding:0 8px;border:1px solid var(--outline);border-radius:7px;background:var(--surface-tint);color:var(--on-surface-variant);font-size:11px;font-weight:500;cursor:pointer;font-family:inherit}
+.session-copy-btn:hover,.btn-secondary.small:hover{background:var(--surface-tint-hover);color:var(--on-surface)}
+.session-content-scroll{flex:1;overflow-y:auto;padding:12px;font-size:12px;line-height:1.7;color:var(--on-surface-variant);font-family:'SF Mono',ui-monospace,monospace;white-space:pre-wrap;word-break:break-word;user-select:text;-webkit-user-select:text}
+
+/* ─── Settings ─── */
+#settings-view{background:var(--surface);border-radius:var(--radius-lg);border:1px solid var(--outline);backdrop-filter:blur(28px) saturate(140%);-webkit-backdrop-filter:blur(28px) saturate(140%);overflow:hidden}
+#settings-drag{flex-shrink:0;border-bottom:1px solid var(--outline-soft);background:var(--surface-dim)}
+.settings-header{display:flex;align-items:center;justify-content:space-between;padding:8px 12px;height:var(--control-bar-height)}
+.settings-header h2{font-size:13px;font-weight:600;color:var(--on-surface)}
+.save-btn-top{color:var(--secondary)!important}
+.save-btn-top:hover{background:var(--secondary-container)!important}
+.settings-body{flex:1;overflow-y:auto;padding:14px}
+.settings-body::-webkit-scrollbar{width:4px}
+.settings-body::-webkit-scrollbar-thumb{background:var(--outline);border-radius:2px}
+.settings-tab-content{display:none}
+.settings-tab-content.active{display:block}
+.settings-card{display:flex;align-items:center;gap:11px;width:100%;padding:12px;margin-bottom:8px;background:var(--surface-tint);border:none;border-radius:12px;color:var(--on-surface);text-align:left;cursor:pointer;transition:background var(--transition-fast);font-family:inherit}
+.settings-card:hover{background:var(--surface-tint-hover)}
+.settings-card-icon{flex:none;display:flex;color:var(--primary)}
+.settings-card-text{display:flex;flex-direction:column;gap:2px;flex:1;min-width:0}
+.settings-card-title{font-size:12px;font-weight:600}
+.settings-card-sub{font-size:10.5px;color:var(--on-surface-variant);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.settings-card-chevron{color:var(--on-surface-variant);display:flex}
+.settings-back-row{display:inline-flex;align-items:center;gap:5px;padding:0 0 10px;background:none;border:none;color:var(--primary);font-size:11.5px;font-weight:500;text-align:left;cursor:pointer;font-family:inherit}
+.settings-back-row:hover{color:var(--accent-hover)}
+.settings-section{margin-bottom:18px;padding-bottom:14px;border-bottom:1px solid var(--outline-soft)}
+.settings-section:last-of-type{border-bottom:none}
+.field-label{font-size:11px;font-weight:500;color:var(--on-surface-variant);display:block;margin-bottom:4px}
+.field-row{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.field{display:flex;flex-direction:column;gap:4px}
+input[type="text"],input[type="password"],select,textarea{width:100%;padding:8px 12px;border:1px solid var(--outline);border-radius:8px;background:var(--surface-container);color:var(--on-surface);font-family:inherit;font-size:12.5px;outline:none;transition:border-color var(--transition-fast)}
+input:focus,select:focus,textarea:focus{border-color:var(--primary)}
+input::placeholder{color:var(--text-muted)}
+select{cursor:pointer;-webkit-appearance:none;appearance:none;background-image:url("data:image/svg+xml,%3Csvg width='10' height='6' viewBox='0 0 10 6' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M1 1L5 5L9 1' stroke='%23a9a5b3' stroke-width='1.5' stroke-linecap='round'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 10px center;padding-right:28px}
+.input-group{display:flex;gap:4px}.input-group input{flex:1}
+.radio-group{display:flex;gap:4px;background:var(--surface-tint);border-radius:8px;padding:3px}
+.radio-option{flex:1;text-align:center;cursor:pointer}
+.radio-option input[type="radio"]{display:none}
+.radio-label{display:block;padding:6px 8px;border-radius:6px;font-size:12px;font-weight:500;color:var(--on-surface-variant);transition:all var(--transition-fast)}
+.radio-option input[type="radio"]:checked+.radio-label{background:var(--primary-container);color:var(--primary)}
+.slider-field{display:flex;align-items:center;gap:10px;margin-bottom:10px}
+.slider-field .field-label{min-width:65px;margin:0}
+input[type="range"]{flex:1;height:4px;-webkit-appearance:none;appearance:none;background:var(--outline);border-radius:2px;outline:none;padding:0;border:none}
+input[type="range"]::-webkit-slider-thumb{-webkit-appearance:none;width:14px;height:14px;border-radius:50%;background:var(--primary);cursor:pointer}
+.range-value{font-size:11px;font-weight:600;color:var(--on-surface-variant);min-width:32px;text-align:right;font-variant-numeric:tabular-nums}
+.checkbox-option{display:flex;align-items:center;gap:8px;cursor:pointer;padding:4px 0}
+.checkbox-option input[type="checkbox"]{width:16px;height:16px;border:1px solid var(--outline);border-radius:4px;background:var(--surface-container);-webkit-appearance:none;appearance:none;cursor:pointer;position:relative;padding:0}
+.checkbox-option input[type="checkbox"]:checked{background:var(--primary);border-color:var(--primary)}
+.checkbox-option input[type="checkbox"]:checked::after{content:'';position:absolute;left:4.5px;top:1.5px;width:5px;height:8px;border:solid var(--on-primary);border-width:0 1.5px 1.5px 0;transform:rotate(45deg)}
+.checkbox-label{font-size:12.5px;color:var(--on-surface-variant)}
+.hint{font-size:11px;color:var(--text-muted);margin-top:6px}
+.hint-dim{opacity:.5;font-size:.9em}
+.key-status{margin-left:.5rem;font-size:.85rem;font-weight:500}
+.key-status.ok{color:var(--secondary)}.key-status.bad{color:var(--error)}
+.cost-warning{margin-top:.5rem;padding:.6rem .8rem;background:var(--tertiary-container);border-radius:8px;font-size:.85rem;color:var(--tertiary);line-height:1.4}
+.terms-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:6px}
+.btn-icon-sm{width:24px;height:24px;border:1px solid var(--outline);border-radius:7px;background:var(--surface-container);color:var(--on-surface);font-size:16px;line-height:1;cursor:pointer;display:flex;align-items:center;justify-content:center}
+.btn-icon-sm:hover{background:var(--surface-tint-hover)}
+.context-subsection{margin-bottom:10px}
+.context-subsection textarea{resize:vertical;min-height:36px;margin-top:4px}
+.settings-actions{padding-top:8px}
+.primary-btn{display:flex;align-items:center;justify-content:center;gap:8px;width:100%;padding:10px 16px;border:none;border-radius:8px;background:var(--primary);color:var(--on-primary);font-family:inherit;font-size:13px;font-weight:600;cursor:pointer;transition:background var(--transition-fast)}
+.primary-btn:hover{background:var(--accent-hover)}
+.about-app-header{display:flex;align-items:baseline;gap:8px;margin-bottom:4px}
+.about-app-name{font-size:15px;font-weight:600;color:var(--on-surface)}
+.about-app-version{font-size:12px;color:var(--primary);font-weight:500;background:var(--primary-container);padding:1px 8px;border-radius:10px}
+.about-links{display:flex;flex-direction:column;gap:6px}
+.about-links a{font-size:12px}
+.update-status{display:flex;align-items:center;gap:8px;padding:8px 12px;background:var(--surface-container);border-radius:8px;font-size:12px;color:var(--on-surface-variant)}
+.check-update-btn{margin-left:auto;background:none;border:1px solid var(--outline);border-radius:7px;color:var(--on-surface-variant);padding:4px 6px;cursor:pointer;display:flex;align-items:center}
+.check-update-btn:hover{color:var(--primary);border-color:var(--primary)}
+.update-progress{display:flex;align-items:center;gap:8px;margin-top:8px}
+.progress-bar{flex:1;height:6px;background:var(--surface-container);border-radius:3px;overflow:hidden}
+.progress-fill{height:100%;width:0%;background:var(--primary);border-radius:3px;transition:width .5s ease}
+.progress-pct{color:var(--on-surface-variant);font-size:.8em;font-variant-numeric:tabular-nums;min-width:36px;text-align:right}
+
+/* ─── Modals / toast / misc (structure preserved) ─── */
+.modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,.6);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);display:flex;align-items:center;justify-content:center;z-index:1000}
+.modal-card{background:var(--surface-container);border:1px solid var(--outline);border-radius:14px;width:420px;max-width:90vw;overflow:hidden}
+.modal-header{display:flex;align-items:center;gap:12px;padding:20px 24px 0}
+.modal-header h3{color:var(--on-surface);font-size:1.05em;font-weight:600}
+.modal-body{padding:16px 24px}
+.modal-desc{color:var(--on-surface-variant);font-size:.85em;line-height:1.5;margin-bottom:20px}
+.modal-footer{padding:12px 24px 20px;display:flex;justify-content:flex-end}
+.secondary-btn{background:var(--surface-tint-hover);color:var(--on-surface-variant);border:1px solid var(--outline);border-radius:8px;padding:8px 20px;font-size:.85em;cursor:pointer;font-family:inherit}
+.secondary-btn:hover{color:var(--on-surface)}
+.shortcut-card{max-width:340px}
+.shortcut-title{margin:0 0 10px;font-size:14px;padding:20px 24px 0}
+.shortcut-table{width:calc(100% - 48px);margin:0 24px 20px;border-collapse:collapse;font-size:12px}
+.shortcut-table td{padding:5px 6px;color:var(--on-surface-variant)}
+.shortcut-table td:first-child{white-space:nowrap;width:110px}
+.shortcut-table kbd{padding:1px 6px;border-radius:4px;border:1px solid var(--outline);background:var(--surface-container);color:var(--on-surface);font-size:11px;font-family:inherit}
+.setup-steps{display:flex;flex-direction:column;gap:8px;margin-bottom:16px}
+.setup-step{display:flex;align-items:center;gap:10px;padding:6px 10px;border-radius:8px}
+.setup-step.active{background:var(--primary-container)}
+.setup-step.done{opacity:.6}
+.step-icon{font-size:.9em;width:20px;text-align:center;color:var(--on-surface-variant)}
+.step-text{color:var(--on-surface-variant);font-size:.85em}
+.setup-status{padding:8px 12px;background:var(--surface-container);border-radius:8px;min-height:36px;display:flex;align-items:center}
+#setup-status-text{color:var(--text-muted);font-size:.8em;font-family:ui-monospace,monospace;word-break:break-all}
+.progress-container{display:flex;align-items:center;gap:12px;margin-bottom:20px}
+.toast{position:fixed;bottom:16px;left:50%;transform:translateX(-50%) translateY(50px);padding:8px 16px;border-radius:8px;font-size:12px;font-weight:500;pointer-events:none;opacity:0;transition:all .3s ease;z-index:1000;max-width:90%;text-align:center;backdrop-filter:blur(10px)}
+.toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+.toast.success{background:var(--secondary-container);color:var(--secondary);border:1px solid rgba(127,214,194,.25)}
+.toast.error{background:var(--error-container);color:#ffb4ab;border:1px solid rgba(255,84,73,.25)}
+#resize-handle{height:6px;cursor:ns-resize;background:transparent;display:flex;align-items:center;justify-content:center;-webkit-app-region:no-drag}
+#resize-handle::after{content:'';width:40px;height:3px;border-radius:2px;background:var(--outline)}
+#resize-handle:hover::after{background:rgba(231,228,236,.25)}
+/* engine picker (first launch) */
+.engine-picker{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:1rem;padding:2rem;background:rgba(0,0,0,.55);backdrop-filter:blur(4px);-webkit-backdrop-filter:blur(4px);z-index:5}
+.engine-picker-title{font-size:1rem;font-weight:600;color:var(--on-surface);text-align:center}
+.engine-picker-hint{font-size:.78rem;color:var(--on-surface-variant);text-align:center}
+.engine-cards{display:flex;gap:1rem;flex-wrap:wrap;justify-content:center}
+.engine-card{min-width:180px;max-width:220px;padding:1rem 1.1rem;background:var(--surface-tint);border:1px solid var(--outline);border-radius:12px;color:var(--on-surface);cursor:pointer;text-align:left;transition:background 120ms,border-color 120ms;font-family:inherit}
+.engine-card:hover{background:var(--surface-tint-hover);border-color:var(--primary)}
+.engine-card-name{font-size:1rem;font-weight:600;color:var(--on-surface)}
+.engine-card-meta{font-size:.78rem;color:var(--on-surface-variant);margin-top:.15rem}
+.engine-card-feats{margin:.6rem 0 0;padding:0 0 0 1rem;font-size:.78rem;color:var(--on-surface-variant);line-height:1.5}
+</style>
+</head>
+<body class="furigana-on activity-live">
+  <!-- ═══════════════════ OVERLAY VIEW ═══════════════════ -->
+  <div id="overlay-view" class="view active dual-view">
+    <div id="drag-region" data-tauri-drag-region>
+      <div class="control-bar" data-tauri-drag-region>
+        <div class="activity-switcher">
+          <button class="activity-tab active" data-activity="live" title="Dịch trực tiếp" type="button">Live<span id="live-tab-badge" class="live-tab-badge visible"></span></button>
+          <button class="activity-tab" data-activity="library" title="Sessions đã lưu" type="button">Thư viện</button>
+        </div>
+        <div class="toolbar-spacer" data-tauri-drag-region></div>
+        <span id="live-lang" class="live-lang">JA <b>⇄</b> VI</span>
+        <button id="btn-settings" class="icon-btn" title="Cài đặt">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33h0a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51h0a1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82v0a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+          <span id="settings-badge" class="settings-badge" style="display:none"></span>
+        </button>
+        <button id="btn-window-mode" class="icon-btn" title="Mở rộng cửa sổ">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 3 21 3 21 9"/><polyline points="9 21 3 21 3 15"/><line x1="21" y1="3" x2="14" y2="10"/><line x1="3" y1="21" x2="10" y2="14"/></svg>
+        </button>
+        <button id="btn-pin" class="icon-btn active" title="Ghim luôn nổi">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 17v5"/><path d="M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V17h14v-1.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V6h1a2 2 0 0 0 0-4H8a2 2 0 0 0 0 4h1v4.76z"/></svg>
+        </button>
+        <button id="btn-minimize" class="icon-btn" title="Thu nhỏ">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="5" y1="12" x2="19" y2="12"/></svg>
+        </button>
+        <button id="btn-close" class="icon-btn close-btn" title="Đóng">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+        </button>
+      </div>
+    </div>
+
+    <!-- ─── LIVE ─── -->
+    <div id="transcript-container" class="activity-panel active" data-activity="live" data-tauri-drag-region>
+      <div id="transcript-content" data-tauri-drag-region>
+        <div class="transcript-flow">
+          <!-- Speaker A (JA → VI) -->
+          <div class="seg-block spk-a">
+            <div class="speaker-row">
+              <span class="speaker-avatar">T</span>
+              <button class="speaker-label" title="Click để đổi tên" type="button">Tanaka</button>
+              <span class="lang-badge">JA</span>
+              <svg class="lang-arrow" width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg>
+              <span class="lang-badge target">VI</span>
+              <span class="seg-time">14:02</span>
+            </div>
+            <span class="seg-translated">Hôm nay tôi muốn trao đổi về việc làm mới lại CMS.</span>
+            <span class="seg-original ja"><span class="tk" data-gloss="hôm nay"><ruby>今日<rt>きょう</rt></ruby><span class="tk-popover"><span><span class="tk-word">今日</span><span class="tk-reading">きょう</span></span><span class="tk-gloss">hôm nay</span></span></span>は CMS <span class="tk" data-gloss="làm mới (renewal)">リニューアル<span class="tk-popover"><span><span class="tk-word">リニューアル</span></span><span class="tk-gloss">làm mới (renewal)</span></span></span>の<span class="tk" data-gloss="vụ việc, vấn đề"><ruby>件<rt>けん</rt></ruby><span class="tk-popover"><span><span class="tk-word">件</span><span class="tk-reading">けん</span></span><span class="tk-gloss">vụ việc, vấn đề</span></span></span>について<span class="tk" data-gloss="trao đổi, bàn bạc"><ruby>相談<rt>そうだん</rt></ruby><span class="tk-popover"><span><span class="tk-word">相談</span><span class="tk-reading">そうだん</span></span><span class="tk-gloss">trao đổi, bàn bạc</span></span></span>したいと<ruby>思<rt>おも</rt></ruby>います。</span>
+          </div>
+          <div class="seg-block spk-a">
+            <span class="seg-translated">Tôi muốn bạn đánh giá công số trong trường hợp làm mới thay vì migration.</span>
+            <span class="seg-original ja"><span class="tk" data-gloss="migration (di trú hệ thống)">マイグレーション<span class="tk-popover"><span><span class="tk-word">マイグレーション</span></span><span class="tk-gloss">migration (di trú hệ thống)</span></span></span>ではなく、リニューアルで<ruby>進<rt>すす</rt></ruby>める<span class="tk" data-gloss="trường hợp"><ruby>場合<rt>ばあい</rt></ruby><span class="tk-popover"><span><span class="tk-word">場合</span><span class="tk-reading">ばあい</span></span><span class="tk-gloss">trường hợp</span></span></span>の<span class="tk" data-gloss="công số (man-hours)"><ruby>工数<rt>こうすう</rt></ruby><span class="tk-popover"><span><span class="tk-word">工数</span><span class="tk-reading">こうすう</span></span><span class="tk-gloss">công số (man-hours)</span></span></span>を<span class="tk" data-gloss="đánh giá"><ruby>評価<rt>ひょうか</rt></ruby><span class="tk-popover"><span><span class="tk-word">評価</span><span class="tk-reading">ひょうか</span></span><span class="tk-gloss">đánh giá</span></span></span>してほしいです。</span>
+          </div>
+          <!-- Speaker B (VI → JA): bản dịch JA là ngôn ngữ đích, highlight -->
+          <div class="seg-block spk-b">
+            <div class="speaker-row">
+              <span class="speaker-avatar">M</span>
+              <button class="speaker-label" title="Click để đổi tên" type="button">Minh</button>
+              <span class="lang-badge">VI</span>
+              <svg class="lang-arrow" width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg>
+              <span class="lang-badge target">JA</span>
+              <span class="seg-time">14:03</span>
+            </div>
+            <span class="seg-translated ja"><span class="tk" data-gloss="định hướng">リニューアルの<ruby>方向性<rt>ほうこうせい</rt></ruby><span class="tk-popover"><span><span class="tk-word">方向性</span><span class="tk-reading">ほうこうせい</span></span><span class="tk-gloss">định hướng</span></span></span>は<ruby>良<rt>よ</rt></ruby>いと<ruby>思<rt>おも</rt></ruby>いますが、<span class="tk" data-gloss="hiện có, sẵn có"><ruby>既存<rt>きそん</rt></ruby><span class="tk-popover"><span><span class="tk-word">既存</span><span class="tk-reading">きそん</span></span><span class="tk-gloss">hiện có, sẵn có</span></span></span><span class="tk" data-gloss="chức năng"><ruby>機能<rt>きのう</rt></ruby><span class="tk-popover"><span><span class="tk-word">機能</span><span class="tk-reading">きのう</span></span><span class="tk-gloss">chức năng</span></span></span>を<ruby>全<rt>すべ</rt></ruby>て<span class="tk" data-gloss="đánh giá lại"><ruby>再評価<rt>さいひょうか</rt></ruby><span class="tk-popover"><span><span class="tk-word">再評価</span><span class="tk-reading">さいひょうか</span></span><span class="tk-gloss">đánh giá lại</span></span></span>する<ruby>時間<rt>じかん</rt></ruby>がかかります。</span>
+            <span class="seg-original">Tôi thấy hướng renew khá ổn, nhưng sẽ tốn thời gian đánh giá lại toàn bộ chức năng hiện có.</span>
+          </div>
+          <div class="seg-block spk-a selected">
+            <div class="speaker-row">
+              <span class="speaker-avatar">T</span>
+              <button class="speaker-label" title="Click để đổi tên" type="button">Tanaka</button>
+              <span class="lang-badge">JA</span>
+              <svg class="lang-arrow" width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg>
+              <span class="lang-badge target">VI</span>
+              <span class="seg-time">14:04</span>
+            </div>
+            <span class="seg-translated">Đến tuần sau bạn có thể đưa ra ước tính sơ bộ không?</span>
+            <span class="seg-original ja"><span class="tk" data-gloss="tuần sau"><ruby>来週<rt>らいしゅう</rt></ruby><span class="tk-popover"><span><span class="tk-word">来週</span><span class="tk-reading">らいしゅう</span></span><span class="tk-gloss">tuần sau</span></span></span>までに<span class="tk" data-gloss="ước tính sơ bộ"><ruby>概算<rt>がいさん</rt></ruby><span class="tk-popover"><span><span class="tk-word">概算</span><span class="tk-reading">がいさん</span></span><span class="tk-gloss">ước tính sơ bộ</span></span></span><span class="tk" data-gloss="báo giá, dự toán"><ruby>見積<rt>みつ</rt></ruby><span class="tk-popover"><span><span class="tk-word">見積</span><span class="tk-reading">みつ</span></span><span class="tk-gloss">báo giá, dự toán</span></span></span>もりを<ruby>出<rt>だ</rt></ruby>せますか？</span>
+          </div>
+          <!-- provisional -->
+          <div class="seg-block seg-provisional-block spk-a">
+            <div class="speaker-row">
+              <span class="speaker-avatar">T</span>
+              <span class="speaker-label" style="cursor:default">Tanaka</span>
+              <span class="lang-badge prov-badge">ĐANG NGHE</span>
+            </div>
+            <span class="seg-provisional ja">はい、では<ruby>次<rt>つぎ</rt></ruby>の<ruby>議題<rt>ぎだい</rt></ruby>ですが…<span class="prov-dots"><span>●</span><span>●</span><span>●</span></span></span>
+          </div>
+        </div>
+        <div class="transcript-placeholder">
+          <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" opacity="0.4"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg>
+          <p>Nhấn Bắt đầu để dịch</p>
+          <p class="shortcut-hint">⌘↩</p>
+        </div>
+      </div>
+
+      <!-- AI assistant panel (new — id/class mới, được phép thêm) -->
+      <aside id="ai-panel" class="open">
+        <button id="btn-ai-toggle" class="ai-head-toggle" type="button">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="var(--primary)" stroke-width="2.2" stroke-linecap="round"><line x1="12" y1="3" x2="12" y2="21"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="5.6" y1="5.6" x2="18.4" y2="18.4"/><line x1="18.4" y1="5.6" x2="5.6" y2="18.4"/></svg>
+          <span class="ai-title">Trợ lý AI</span>
+          <span id="ai-badge" class="ai-badge">2 action items</span>
+          <span class="ai-chevron"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><polyline points="18 15 12 9 6 15"/></svg></span>
+        </button>
+        <div class="ai-body">
+          <div class="ai-summary-head">
+            <span class="ai-section-label" style="margin:0">Tóm tắt · cập nhật 30s trước</span>
+            <button id="btn-ai-summarize" type="button">
+              <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+              Tóm tắt ngay
+            </button>
+          </div>
+          <div id="ai-summary">
+            <div class="ai-row"><span class="ai-row-label">CHỦ ĐỀ</span><span class="ai-row-text">Đánh giá công số renew CMS thay vì migration</span></div>
+            <div class="ai-row"><span class="ai-row-label">QUYẾT ĐỊNH</span><span class="ai-row-text">Ưu tiên hướng renew, cần ước tính sơ bộ trước</span></div>
+            <div class="ai-row"><span class="ai-row-label">ACTIONS</span>
+              <div>
+                <div class="ai-action"><span class="ai-check" style="border:1.5px solid var(--secondary)"></span><span class="ai-row-text">Gửi ước tính sơ bộ — T4 tuần sau <b style="color:var(--secondary)">· Minh</b></span></div>
+                <div class="ai-action"><span class="ai-check" style="border:1.5px solid var(--spk-a)"></span><span class="ai-row-text">Gửi danh sách chức năng hiện có <b style="color:var(--spk-a)">· Tanaka</b></span></div>
+              </div>
+            </div>
+          </div>
+          <div class="ai-sep"></div>
+          <div id="ai-replies">
+            <span class="ai-section-label">Gợi ý trả lời — câu đã chọn</span>
+            <div class="ai-selected-quote">Đến tuần sau bạn có thể đưa ra ước tính sơ bộ không?</div>
+            <div class="ai-reply">
+              <div class="ai-reply-vi">Được, tôi sẽ gửi ước tính sơ bộ trước thứ Tư tuần sau.</div>
+              <div class="ai-reply-ja">はい、来週の水曜日までに概算をお送りします。</div>
+              <button class="ai-reply-copy" title="Copy" type="button"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></button>
+            </div>
+            <div class="ai-reply">
+              <div class="ai-reply-vi">Tuần sau hơi gấp — cho tôi thêm 2 ngày được không?</div>
+              <div class="ai-reply-ja">来週は少し厳しいので、あと2日いただけますか？</div>
+              <button class="ai-reply-copy" title="Copy" type="button"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></button>
+            </div>
+          </div>
+          <div id="ai-replies-empty" class="ai-hint-empty" style="display:none">Chọn một câu trong transcript để nhận gợi ý trả lời (VI + JA).</div>
+        </div>
+      </aside>
+
+      <!-- Action row -->
+      <div class="live-action-row">
+        <button id="btn-start" class="primary-action-btn" title="Bắt đầu / Dừng (⌘↩)">
+          <svg id="icon-play" width="10" height="10" viewBox="0 0 24 24" fill="currentColor" style="display:none"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+          <svg id="icon-stop" width="10" height="10" viewBox="0 0 24 24" fill="currentColor"><rect x="4" y="4" width="16" height="16" rx="2"/></svg>
+          <span id="btn-start-label" class="btn-start-text">Dừng</span>
+        </button>
+        <button id="btn-pause" class="action-btn" title="Tạm dừng (giữ session)">
+          <svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="4" width="4" height="16" rx="1"/><rect x="14" y="4" width="4" height="16" rx="1"/></svg>
+        </button>
+        <span class="status-area"><span id="status-indicator" class="status-dot connected"></span><span id="status-text" class="status-text">14:32</span></span>
+        <select id="select-audio-source" class="source-select" title="Nguồn âm thanh (⌘1/2/3)">
+          <option value="system">System</option>
+          <option value="microphone">Mic</option>
+          <option value="both">Cả hai</option>
+        </select>
+        <div class="toolbar-spacer"></div>
+        <div class="font-controls">
+          <button id="btn-font-down" class="float-btn" title="Giảm cỡ chữ">A−</button>
+          <span id="font-size-display" class="font-size-label">16</span>
+          <button id="btn-font-up" class="float-btn" title="Tăng cỡ chữ">A+</button>
+        </div>
+        <button id="btn-view-mode" class="toggle-chip active" title="Bật/tắt hiện bản gốc" type="button">Song ngữ</button>
+        <button id="btn-furigana" class="toggle-chip active" title="Hiện furigana trên chữ Hán" type="button">ふ</button>
+        <div class="more-menu-wrap">
+          <button id="btn-more" class="icon-btn" title="Thêm">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="19" cy="12" r="2"/></svg>
+          </button>
+          <div id="more-menu" class="more-menu" style="display:none">
+            <div class="more-menu-label">Engine</div>
+            <div class="engine-pill" id="engine-pill" title="Đổi engine">
+              <button class="engine-pill-btn active" data-engine-class="standard" type="button"><span class="engine-pill-label">Standard</span></button>
+              <button class="engine-pill-btn" data-engine-class="openai" type="button"><span class="engine-pill-label">OpenAI</span></button>
+              <button class="engine-pill-btn" data-engine-class="qwen" type="button"><span class="engine-pill-label">Qwen</span></button>
+            </div>
+            <div class="more-menu-sep"></div>
+            <button id="btn-copy" class="more-menu-item" type="button">Copy transcript</button>
+            <button id="btn-clear" class="more-menu-item" type="button">Xóa transcript</button>
+            <div class="more-menu-sep"></div>
+            <button id="btn-compact" class="more-menu-item" type="button">Compact — ẩn thanh công cụ</button>
+            <button id="btn-auto-hide" class="more-menu-item" type="button">Tự ẩn khi đang dịch</button>
+            <button id="btn-shortcuts" class="more-menu-item" type="button">Phím tắt</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Engine picker (first launch) -->
+      <div id="engine-picker" class="engine-picker" style="display:none">
+        <p class="engine-picker-title">Chọn chế độ dịch</p>
+        <div class="engine-cards">
+          <button class="engine-card" data-engine-class="standard" type="button">
+            <div class="engine-card-name">Standard</div>
+            <div class="engine-card-meta">Soniox / Local · ~$0.12/hr</div>
+            <ul class="engine-card-feats"><li>70+ ngôn ngữ</li><li>Two-way mode</li></ul>
+          </button>
+          <button class="engine-card" data-engine-class="openai" type="button">
+            <div class="engine-card-name">OpenAI Realtime</div>
+            <div class="engine-card-meta">~$4/hr · text-only</div>
+            <ul class="engine-card-feats"><li>13 ngôn ngữ</li><li>Delta captions liên tục</li></ul>
+          </button>
+          <button class="engine-card" data-engine-class="qwen" type="button">
+            <div class="engine-card-name">Qwen LiveTranslate</div>
+            <div class="engine-card-meta">Free preview · text-only</div>
+            <ul class="engine-card-feats"><li>60+ ngôn ngữ</li><li>First token ~4s</li></ul>
+          </button>
+        </div>
+        <p class="engine-picker-hint">Đổi bất kỳ lúc nào từ menu ⋯ trong thanh công cụ.</p>
+      </div>
+    </div>
+
+    <!-- ─── LIBRARY ─── -->
+    <div id="library-panel" class="activity-panel" data-activity="library">
+      <div id="sessions-list-panel" class="sessions-body">
+        <div class="sessions-search-row">
+          <input id="input-session-search" type="text" placeholder="Tìm session…" class="sessions-search-input" />
+          <button id="btn-open-transcripts" class="icon-btn small" title="Mở thư mục transcripts trong Finder">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
+          </button>
+        </div>
+        <div id="sessions-list">
+          <button class="session-item" type="button">
+            <span class="session-item-row1"><span class="session-item-title">Họp CMS renewal — khách hàng A</span><span class="session-badge">JA⇄VI</span></span>
+            <span class="session-item-row2"><span class="session-meta-dim">05/08 · 42 phút</span><span class="session-badge badge-engine">Soniox</span></span>
+          </button>
+          <button class="session-item" type="button">
+            <span class="session-item-row1"><span class="session-item-title">Daily standup đội dev</span><span class="session-badge">JA⇄VI</span></span>
+            <span class="session-item-row2"><span class="session-meta-dim">04/08 · 15 phút</span><span class="session-badge badge-engine">Qwen</span></span>
+          </button>
+          <button class="session-item" type="button">
+            <span class="session-item-row1"><span class="session-item-title">Review thiết kế màn quản trị</span><span class="session-badge">JA⇄VI</span></span>
+            <span class="session-item-row2"><span class="session-meta-dim">01/08 · 58 phút</span><span class="session-badge badge-engine">Soniox</span></span>
+          </button>
+          <button class="session-item" type="button">
+            <span class="session-item-row1"><span class="session-item-title">1-1 với PM Sato</span><span class="session-badge">JA⇄VI</span></span>
+            <span class="session-item-row2"><span class="session-meta-dim">29/07 · 30 phút</span><span class="session-badge badge-engine">OpenAI</span></span>
+          </button>
+        </div>
+      </div>
+      <div id="session-viewer" class="sessions-body" style="display:none">
+        <div class="session-viewer-header">
+          <button id="btn-session-back-to-list" class="icon-btn" title="Về danh sách">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg>
+          </button>
+          <span id="session-viewer-title" class="session-viewer-title-text"></span>
+          <button id="btn-session-edit-title" class="icon-btn small" title="Đổi tên session">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+          </button>
+          <button id="btn-session-export-srt" class="btn-secondary small" title="Xuất .srt">.srt</button>
+          <button id="btn-session-export-txt" class="btn-secondary small" title="Xuất .txt">.txt</button>
+          <button id="btn-session-copy" class="session-copy-btn" title="Copy nội dung">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+            Copy
+          </button>
+        </div>
+        <div id="session-viewer-content" class="session-content-scroll"></div>
+      </div>
+    </div>
+
+    <div id="resize-handle"></div>
+  </div>
+
+  <!-- ═══════════════════ SETTINGS VIEW ═══════════════════ -->
+  <div id="settings-view" class="view">
+    <div id="settings-drag" data-tauri-drag-region>
+      <div class="settings-header">
+        <button id="btn-back" class="icon-btn" title="Quay lại">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg>
+        </button>
+        <h2>Cài đặt</h2>
+        <button id="btn-save-settings-top" class="icon-btn save-btn-top" title="Lưu &amp; đóng">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"/></svg>
+        </button>
+      </div>
+    </div>
+    <div class="settings-body">
+      <div class="settings-tab-content active" id="settings-home">
+        <button class="settings-card" data-screen="tab-translation" id="card-translation">
+          <span class="settings-card-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg></span>
+          <span class="settings-card-text"><span class="settings-card-title">Engine dịch</span><span class="settings-card-sub" id="card-translation-sub">Soniox · JA ⇄ VI</span></span>
+          <span class="settings-card-chevron"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg></span>
+        </button>
+        <button class="settings-card" data-screen="tab-display" id="card-display">
+          <span class="settings-card-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><line x1="4" y1="21" x2="4" y2="14"/><line x1="4" y1="10" x2="4" y2="3"/><line x1="12" y1="21" x2="12" y2="12"/><line x1="12" y1="8" x2="12" y2="3"/><line x1="20" y1="21" x2="20" y2="16"/><line x1="20" y1="12" x2="20" y2="3"/><line x1="1" y1="14" x2="7" y2="14"/><line x1="9" y1="8" x2="15" y2="8"/><line x1="17" y1="16" x2="23" y2="16"/></svg></span>
+          <span class="settings-card-text"><span class="settings-card-title">Hiển thị</span><span class="settings-card-sub" id="card-display-sub">Font, cỡ chữ, độ mờ, furigana</span></span>
+          <span class="settings-card-chevron"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg></span>
+        </button>
+        <button class="settings-card" data-screen="tab-about" id="card-about">
+          <span class="settings-card-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg></span>
+          <span class="settings-card-text"><span class="settings-card-title">Giới thiệu</span><span class="settings-card-sub" id="card-about-sub">Phiên bản, cập nhật</span></span>
+          <span class="settings-card-chevron"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg></span>
+        </button>
+      </div>
+
+      <!-- Detail: Translation -->
+      <div class="settings-tab-content" id="tab-translation">
+        <button class="settings-back-row" data-screen="settings-home">‹ Cài đặt</button>
+        <div class="settings-section">
+          <span class="field-label">Engine</span>
+          <select id="select-translation-mode">
+            <option value="soniox">Soniox</option>
+            <option value="local">Local MLX</option>
+            <option value="openai">OpenAI Realtime</option>
+            <option value="qwen">Qwen LiveTranslate Flash</option>
+          </select>
+          <p class="hint" id="hint-mode-soniox">Cloud · 70+ ngôn ngữ · ~$0.12/hr</p>
+          <p class="hint" id="hint-mode-local" style="display:none">Offline · miễn phí · trễ ~3–4s</p>
+          <p class="hint" id="hint-mode-openai" style="display:none">Cloud · 13 ngôn ngữ · text-only captions</p>
+          <p class="hint" id="hint-mode-qwen" style="display:none">Cloud · 60+ ngôn ngữ · text-only · free preview</p>
+          <div id="openai-cost-warning" class="cost-warning" style="display:none">~$4/hr — đắt hơn Soniox nhiều. Tính vào tài khoản OpenAI của bạn.</div>
+        </div>
+        <div class="settings-section" id="section-api-key">
+          <span class="field-label">Soniox API Key <span id="key-status-soniox" class="key-status"></span></span>
+          <div class="input-group">
+            <input type="password" id="input-api-key" placeholder="Nhập Soniox API key…" autocomplete="off" />
+            <button id="btn-toggle-key" class="icon-btn small" title="Hiện/ẩn"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg></button>
+            <button id="btn-test-soniox" class="btn-secondary small" title="Kiểm tra kết nối">Test</button>
+          </div>
+          <p class="hint">Lấy key tại <a href="#" id="link-soniox">console.soniox.com</a></p>
+        </div>
+        <div class="settings-section" id="section-openai-key">
+          <span class="field-label">OpenAI API Key <span id="key-status-openai" class="key-status"></span></span>
+          <div class="input-group">
+            <input type="password" id="input-openai-key" placeholder="sk-…" autocomplete="off" />
+            <button id="btn-toggle-openai-key" class="icon-btn small" title="Hiện/ẩn"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg></button>
+            <button id="btn-test-openai" class="btn-secondary small" title="Kiểm tra kết nối">Test</button>
+          </div>
+        </div>
+        <div class="settings-section" id="section-qwen-key" style="display:none">
+          <span class="field-label">Qwen (DashScope) API Key <span id="key-status-qwen" class="key-status"></span></span>
+          <div class="input-group">
+            <input type="password" id="input-qwen-key" placeholder="sk-…" autocomplete="off" />
+            <button id="btn-toggle-qwen-key" class="icon-btn small" title="Hiện/ẩn"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg></button>
+          </div>
+        </div>
+        <div class="settings-section" id="section-languages">
+          <div style="margin-bottom:10px">
+            <span class="field-label">Kiểu dịch</span>
+            <select id="select-translation-type">
+              <option value="one_way">Một chiều → dịch tất cả sang ngôn ngữ đích</option>
+              <option value="two_way" selected>Hai chiều ↔ dịch qua lại giữa hai ngôn ngữ</option>
+            </select>
+          </div>
+          <div id="section-oneway-langs" class="field-row" style="display:none">
+            <div class="field"><span class="field-label">Nguồn</span>
+              <select id="select-source-lang"><option value="auto">Tự phát hiện</option><option value="ja">Japanese</option><option value="vi">Vietnamese</option><option value="en">English</option></select>
+            </div>
+            <div class="field"><span class="field-label">Đích</span>
+              <select id="select-target-lang"><option value="vi">Vietnamese</option><option value="ja">Japanese</option><option value="en">English</option></select>
+            </div>
+          </div>
+          <div id="section-twoway-langs" class="field-row">
+            <div class="field"><span class="field-label">Ngôn ngữ A</span>
+              <select id="select-lang-a"><option value="ja" selected>Japanese</option><option value="vi">Vietnamese</option><option value="en">English</option></select>
+            </div>
+            <div class="field"><span class="field-label">Ngôn ngữ B</span>
+              <select id="select-lang-b"><option value="vi" selected>Vietnamese</option><option value="ja">Japanese</option><option value="en">English</option></select>
+            </div>
+          </div>
+          <p class="hint" id="hint-twoway">Nói ngôn ngữ A → dịch sang B và ngược lại.</p>
+          <label class="checkbox-option" id="section-strict-lang" style="margin-top:8px">
+            <input type="checkbox" id="check-strict-lang" />
+            <span class="checkbox-label">Strict language detection <span class="hint-dim">(giảm nhận nhầm ngôn ngữ)</span></span>
+          </label>
+          <div class="slider-field" id="section-endpoint-delay" style="margin-top:12px">
+            <span class="field-label" title="Thời gian chờ sau khi ngừng nói">Endpoint delay</span>
+            <input type="range" id="range-endpoint-delay" min="500" max="3000" step="100" value="3000" />
+            <span id="endpoint-delay-value" class="range-value">3.0s</span>
+          </div>
+        </div>
+        <div class="settings-section">
+          <span class="field-label">Nguồn âm thanh</span>
+          <div class="radio-group" id="audio-source-group">
+            <label class="radio-option"><input type="radio" name="audio-source" value="system" checked /><span class="radio-label">System</span></label>
+            <label class="radio-option"><input type="radio" name="audio-source" value="microphone" /><span class="radio-label">Mic</span></label>
+            <label class="radio-option"><input type="radio" name="audio-source" value="both" /><span class="radio-label">Cả hai</span></label>
+          </div>
+        </div>
+        <div class="settings-section" id="section-soniox-context">
+          <span class="field-label">Context / từ điển thuật ngữ</span>
+          <div class="context-subsection">
+            <div class="terms-header"><span class="hint" style="margin:0">General context</span><button type="button" id="btn-add-general" class="btn-icon-sm" title="Thêm cặp context">+</button></div>
+            <div id="context-general-list"></div>
+          </div>
+          <div class="context-subsection">
+            <span class="hint">Transcription terms <span class="hint-dim">(mỗi dòng một thuật ngữ)</span></span>
+            <textarea id="input-context-terms" rows="2" placeholder="vd:&#10;CMS リニューアル&#10;工数"></textarea>
+          </div>
+          <div class="context-subsection">
+            <span class="hint">Background text <span class="hint-dim">(nội dung, bối cảnh cuộc họp)</span></span>
+            <textarea id="input-context-text" rows="2" placeholder="vd: Họp follow-up về dự án renew CMS…"></textarea>
+          </div>
+          <div class="context-subsection">
+            <div class="terms-header"><span class="hint" style="margin:0">Translation terms <span class="hint-dim">(nguồn → đích)</span></span><button type="button" id="btn-add-term" class="btn-icon-sm" title="Thêm thuật ngữ">+</button></div>
+            <div id="translation-terms-list"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Detail: Display -->
+      <div class="settings-tab-content" id="tab-display">
+        <button class="settings-back-row" data-screen="settings-home">‹ Cài đặt</button>
+        <div class="settings-section">
+          <div class="slider-field"><span class="field-label">Độ mờ</span><input type="range" id="range-opacity" min="20" max="100" value="90" /><span id="opacity-value" class="range-value">90%</span></div>
+          <div class="slider-field"><span class="field-label">Cỡ chữ</span><input type="range" id="range-font-size" min="12" max="140" value="16" /><span id="font-size-value" class="range-value">16px</span></div>
+          <div class="slider-field"><span class="field-label">Số dòng tối đa</span><input type="range" id="range-max-lines" min="2" max="15" value="5" /><span id="max-lines-value" class="range-value">5</span></div>
+          <label class="checkbox-option" style="margin-top:8px"><input type="checkbox" id="check-show-original" checked /><span class="checkbox-label">Hiện bản gốc (song ngữ)</span></label>
+          <label class="checkbox-option"><input type="checkbox" id="check-furigana" checked /><span class="checkbox-label">Furigana trên chữ Hán</span></label>
+        </div>
+      </div>
+
+      <!-- Detail: About -->
+      <div class="settings-tab-content" id="tab-about">
+        <button class="settings-back-row" data-screen="settings-home">‹ Cài đặt</button>
+        <div class="settings-section about-info">
+          <div class="about-app-header"><span class="about-app-name">My Translator</span><span class="about-app-version" id="about-version">v0.6.0</span></div>
+          <p class="hint">Dịch giọng nói realtime cho macOS &amp; Windows</p>
+        </div>
+        <div class="settings-section" id="section-update">
+          <span class="field-label">Cập nhật</span>
+          <div id="update-status" class="update-status">
+            <span id="update-status-text">Nhấn để kiểm tra cập nhật</span>
+            <button id="btn-check-update" class="check-update-btn" title="Kiểm tra ngay"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg></button>
+          </div>
+          <div id="update-actions" style="margin-top:8px;display:none">
+            <button id="btn-do-update" class="primary-btn update-btn"><span id="update-btn-text">Tải &amp; cài đặt</span></button>
+          </div>
+          <div id="update-progress" class="update-progress" style="display:none">
+            <div class="progress-bar"><div id="update-progress-fill" class="progress-fill"></div></div>
+            <span id="update-progress-pct" class="progress-pct">0%</span>
+          </div>
+        </div>
+        <div class="settings-section">
+          <span class="field-label">Liên kết</span>
+          <div class="about-links"><a href="#" id="link-github">GitHub Repository</a><a href="#" id="link-issues">Báo lỗi</a></div>
+        </div>
+      </div>
+
+      <div class="settings-actions">
+        <button id="btn-save-settings" class="primary-btn">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"/></svg>
+          Lưu &amp; đóng
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══════════════════ SHORTCUT SHEET ═══════════════════ -->
+  <div id="shortcut-sheet" class="modal-overlay" style="display:none">
+    <div class="modal-card shortcut-card">
+      <h3 class="shortcut-title">Phím tắt</h3>
+      <table class="shortcut-table">
+        <tr><td><kbd>⌘↩</kbd></td><td>Bắt đầu / dừng dịch</td></tr>
+        <tr><td><kbd>⌘1</kbd> / <kbd>⌘2</kbd> / <kbd>⌘3</kbd></td><td>Nguồn: System / Mic / Cả hai</td></tr>
+        <tr><td><kbd>⌘,</kbd></td><td>Mở Cài đặt</td></tr>
+        <tr><td><kbd>⌘P</kbd></td><td>Ghim cửa sổ nổi</td></tr>
+        <tr><td><kbd>⌘D</kbd></td><td>Compact — ẩn thanh công cụ</td></tr>
+        <tr><td><kbd>⌘M</kbd></td><td>Thu nhỏ cửa sổ</td></tr>
+        <tr><td><kbd>Esc</kbd></td><td>Về màn hình chính / đóng bảng này</td></tr>
+      </table>
+    </div>
+  </div>
+
+  <!-- ═══════════════════ SETUP MODAL ═══════════════════ -->
+  <div id="setup-modal" class="modal-overlay" style="display:none">
+    <div class="modal-card">
+      <div class="modal-header"><h3>Cài đặt Local Models</h3></div>
+      <div class="modal-body">
+        <p class="modal-desc">Tải và cài model MLX cho dịch offline. Chỉ cần làm một lần.</p>
+        <div class="progress-container">
+          <div class="progress-bar"><div id="setup-progress-fill" class="progress-fill"></div></div>
+          <span id="setup-progress-pct" class="progress-pct">0%</span>
+        </div>
+        <div class="setup-steps">
+          <div class="setup-step" id="step-check"><span class="step-icon">·</span><span class="step-text">Kiểm tra Python</span></div>
+          <div class="setup-step" id="step-venv"><span class="step-icon">·</span><span class="step-text">Tạo môi trường</span></div>
+          <div class="setup-step" id="step-packages"><span class="step-icon">·</span><span class="step-text">Cài packages</span></div>
+          <div class="setup-step" id="step-models"><span class="step-icon">·</span><span class="step-text">Tải models (~5GB)</span></div>
+        </div>
+        <div class="setup-status"><span id="setup-status-text">Đang chuẩn bị…</span></div>
+      </div>
+      <div class="modal-footer"><button id="btn-cancel-setup" class="secondary-btn">Hủy</button></div>
+    </div>
+  </div>
+
+<script>
+/* ═══ DEMO INTERACTIONS — xóa block này khi tích hợp vào app (JS thật của app bind theo id) ═══ */
+(function(){
+  var $=function(s){return document.querySelector(s)};
+  // activity tabs
+  document.querySelectorAll('.activity-tab').forEach(function(t){t.addEventListener('click',function(){
+    document.querySelectorAll('.activity-tab').forEach(function(x){x.classList.remove('active')});
+    document.querySelectorAll('.activity-panel').forEach(function(x){x.classList.remove('active')});
+    t.classList.add('active');
+    document.querySelector('.activity-panel[data-activity="'+t.dataset.activity+'"]').classList.add('active');
+  })});
+  // settings open/close
+  $('#btn-settings').addEventListener('click',function(){$('#overlay-view').classList.remove('active');$('#settings-view').classList.add('active')});
+  var back=function(){$('#settings-view').classList.remove('active');$('#overlay-view').classList.add('active')};
+  $('#btn-back').addEventListener('click',back);$('#btn-save-settings').addEventListener('click',back);$('#btn-save-settings-top').addEventListener('click',back);
+  document.querySelectorAll('[data-screen]').forEach(function(b){b.addEventListener('click',function(){
+    document.querySelectorAll('.settings-tab-content').forEach(function(x){x.classList.remove('active')});
+    document.getElementById(b.dataset.screen).classList.add('active');
+  })});
+  // AI drawer
+  $('#btn-ai-toggle').addEventListener('click',function(){$('#ai-panel').classList.toggle('open')});
+  // toggles
+  $('#btn-view-mode').addEventListener('click',function(){this.classList.toggle('active');$('#overlay-view').classList.toggle('dual-view');$('#overlay-view').classList.toggle('single-view')});
+  $('#btn-furigana').addEventListener('click',function(){this.classList.toggle('active');document.body.classList.toggle('furigana-on')});
+  // font size
+  var fs=16,apply=function(){document.documentElement.style.setProperty('--transcript-font-size',fs+'px');$('#font-size-display').textContent=fs};
+  $('#btn-font-up').addEventListener('click',function(){fs=Math.min(44,fs+2);apply()});
+  $('#btn-font-down').addEventListener('click',function(){fs=Math.max(12,fs-2);apply()});
+  // more menu
+  $('#btn-more').addEventListener('click',function(e){e.stopPropagation();var m=$('#more-menu');m.style.display=m.style.display==='none'?'block':'none'});
+  document.addEventListener('click',function(){$('#more-menu').style.display='none'});
+  // segment select → highlight (gợi ý trả lời realtime do app cung cấp)
+  document.querySelectorAll('.seg-block:not(.seg-provisional-block)').forEach(function(b){b.addEventListener('click',function(){
+    var was=b.classList.contains('selected');
+    document.querySelectorAll('.seg-block').forEach(function(x){x.classList.remove('selected')});
+    if(!was){b.classList.add('selected');$('#ai-panel').classList.add('open');}
+    $('#ai-replies').style.display=was?'none':'block';
+    $('#ai-replies-empty').style.display=was?'block':'none';
+  })});
+  // furigana token popover
+  document.querySelectorAll('.tk[data-gloss]').forEach(function(tk){tk.addEventListener('click',function(e){
+    e.stopPropagation();var open=tk.classList.contains('pop-open');
+    document.querySelectorAll('.tk.pop-open').forEach(function(x){x.classList.remove('pop-open')});
+    if(!open)tk.classList.add('pop-open');
+  })});
+  // start/stop demo
+  var rec=true;
+  $('#btn-start').addEventListener('click',function(){rec=!rec;
+    $('#icon-play').style.display=rec?'none':'block';$('#icon-stop').style.display=rec?'block':'none';
+    $('#btn-start-label').textContent=rec?'Dừng':'Bắt đầu';
+    $('#status-indicator').className='status-dot '+(rec?'connected':'disconnected');
+    $('#live-tab-badge').classList.toggle('visible',rec);
+  });
+})();
+</script>
+</body>
+</html>

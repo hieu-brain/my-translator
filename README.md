@@ -1,193 +1,134 @@
-<p align="center">
-  <img src="banner.png?v=2" alt="My Translator — Real-time Speech Translation">
-</p>
+# My Translator — Meeting Edition
 
-<p align="center">
-  <img src="https://img.shields.io/github/v/release/phuc-nt/my-translator?color=green&label=release" alt="Latest Release">
-  <img src="https://img.shields.io/badge/built_with-Tauri-orange?logo=tauri" alt="Built with Tauri">
-  <img src="https://img.shields.io/badge/macOS-Apple%20Silicon%20%7C%20Intel-black?logo=apple" alt="macOS">
-  <img src="https://img.shields.io/badge/Windows-10%2F11-blue?logo=windows" alt="Windows">
-  <img src="https://img.shields.io/badge/license-MIT-blue" alt="License">
-  <img src="https://img.shields.io/github/stars/phuc-nt/my-translator?style=flat&color=yellow" alt="Stars">
-</p>
+A macOS overlay that transcribes and translates **live meetings** between Vietnamese and Japanese, and gives you an AI meeting assistant on the side: a rolling summary you can glance at, and reply suggestions grounded in your actual project when someone puts you on the spot.
 
-**My Translator** is a real-time speech translation desktop app built with Tauri. It captures audio directly from your system or microphone, transcribes it, and displays translations in a minimal overlay — with no intermediary server involved.
-
-> 📖 Installation guides: [macOS (EN)](docs/installation_guide.md) · [macOS (VI)](docs/installation_guide_vi.md) · [Windows (EN)](docs/installation_guide_win.md) · [Windows (VI)](docs/installation_guide_win_vi.md)
-
-### ⬇️ Which build do I download?
-
-Grab the matching file from the [latest release](https://github.com/phuc-nt/my-translator/releases/latest):
-
-| Your machine | File |
-|---|---|
-| **Mac Apple Silicon** (M1/M2/M3/M4) | `MyTranslator_<ver>_aarch64.dmg` |
-| **Mac Intel** (pre-2020) | `MyTranslator_<ver>_x64.dmg` |
-| **Windows** | `MyTranslator_<ver>_x64-setup.exe` |
-
-> On a Mac, check  → **About This Mac** → *Chip*: **Apple M-series** → `aarch64`, **Intel** → `x64`. Macs from late 2020 on are almost all Apple Silicon.
-> The `.app.tar.gz`, `.sig`, and `latest.json` files are for the built-in auto-updater — you don't download those.
+Personal fork of [phuc-nt/my-translator](https://github.com/phuc-nt/my-translator) (v0.9.1), rebuilt around live meetings rather than watching video.
 
 ---
 
-## How It Works
+## What it does
 
 ```
-                                    ┌── ☁️  Soniox  (text)              ──┐
-System Audio / Mic → 16kHz PCM ─────┼── ⚡ OpenAI Realtime (text+🔊)      ─┼─→ Overlay UI
-                                    ├── 🌏 Qwen LiveTranslate Flash (text only) │
-                                    └── 🖥️  Local MLX  (text, offline)   ─┘
-                                                                            ↓ (optional, text engines)
-                                                  TTS (Edge / Google / ElevenLabs) → 🔊
+System audio / Mic ──► 16kHz PCM ──► Soniox (cloud) ──┐
+                                  └─► Local MLX (offline) ─┴─► Caption overlay
+                                                             │
+                                          ┌──────────────────┴──────────────────┐
+                                          │  Meeting assistant (Claude)         │
+                                          │  · rolling summary every ~2 min     │
+                                          │  · reply suggestions (VI + JA)      │
+                                          │  · meeting note saved per project   │
+                                          └─────────────────────────────────────┘
 ```
-
-Four translation engines, pick what fits your call:
 
 | Feature | Detail |
-|---------|--------|
-| **Engines** | ☁️ Soniox · ⚡ OpenAI Realtime · 🌏 Qwen LiveTranslate Flash · 🖥️ Local MLX |
-| **Latency** | ~2 s (Soniox / OpenAI) · ~4 s (Qwen) · ~10 s (Local) |
-| **Languages** | 70+ source → any target (Soniox), 13 targets (OpenAI), 60+ source+target (Qwen), JA/EN/ZH/KO → VI/EN (Local) |
-| **Cost** | ~$0.12/hr (Soniox) · ~$4/hr (OpenAI, includes voice) · Free preview (Qwen, text-only) · Free (Local) |
-| **TTS** | 3 providers for Soniox / Local (Edge free, Google, ElevenLabs) — OpenAI streams its own voice (off by default), Qwen text-only |
-| **Platform** | macOS (ARM + Intel) · Windows · Local mode = Apple Silicon only |
-| **Signed** | ✅ macOS signed & notarized |
-| **Auto-Update** | ✅ Built-in, check & install from Settings |
-
-> 📊 Detailed head-to-head: [**OpenAI Realtime vs Soniox benchmark**](docs/benchmark_openai_vs_soniox.md) — speed, quality, cost, and translation-mechanism comparison from a 5-min real-world test.
+|---|---|
+| **Engines** | ☁️ Soniox (~2s, ~$0.12/hr, 70+ languages) · 🖥️ Local MLX (offline, free, Apple Silicon) |
+| **Two-way translation** | Speak VI → shows JA, speak JA → shows VI, automatically |
+| **Transcript** | Caption blocks: translation large, original underneath, per-speaker colours and editable names |
+| **Smart scroll** | Scroll up to re-read without being yanked back to the bottom |
+| **Furigana** | Toggle ruby readings over Japanese kanji (`ふ` button) |
+| **Meeting assistant** | Rolling summary (topic / decisions / action items) + reply suggestions in Vietnamese *and* Japanese |
+| **Project context** | Assistant reads the project's `CLAUDE.md` / `README` / `docs`, its open Backlog issues, and any notes you attach |
+| **Meeting notes** | Saved as Markdown with a summary header, next to the project folder |
+| **Platform** | macOS 13+ only |
 
 ---
 
-## Features
+## The meeting assistant
 
-### 📖 Dual Panel View
+### Backend: your Claude plan, or an API key
 
-Two display modes:
-- **Single** (default) — Translation text only, clean and focused
-- **Dual** — Source | Translation side-by-side, each panel scrolls independently
+A Claude Max/Pro subscription cannot authenticate the Anthropic HTTP API — but the `claude` CLI on your machine is already signed in with it. The app shells out to that CLI, so assistant calls **cost nothing extra**; they draw on your plan's usage instead. Each call takes ~2-5s, which is fine for a summary that runs every couple of minutes.
 
-Toggle with the panel button (bottom-right on hover).
+Prefer per-token billing and lower latency? Switch to the **Anthropic API** backend in Settings and paste an API key. Rough cost at that point: Haiku 4.5 for summaries is ~$0.10-0.15 per meeting-hour, Sonnet 5 reply suggestions ~$0.02-0.05 each — under $0.50 for a typical meeting.
 
-### 🔄 Smart Scroll
+### Rolling summary
 
-Auto-scroll only when you're at the bottom. Scroll up to read old content without being yanked back down.
+Every ~2 minutes (configurable) the assistant sends *only the new sentences* plus the previous summary, so cost stays flat as the meeting grows. If nobody has spoken, it skips the call entirely. There's a **Tóm tắt ngay** button for on-demand runs, and auto-summary can be turned off completely.
 
-### 🔤 Quick Font Size
+### Reply suggestions
 
-A- / A+ floating controls (bottom-right on hover). Font size adjustable up to 140px — great for presentations.
+Click any sentence in the transcript. The assistant reads it together with the project context, the running summary, and the last ~15 exchanges, then proposes 2-3 replies — each as a Vietnamese line you can think in and a polite Japanese line you can say out loud.
 
-### 🔄 Two-Way Translation
+### Meeting profiles
 
-Translate conversations between two languages simultaneously — ideal for bilingual meetings.
+Bind a meeting to a project: point at the project folder, optionally give a Backlog project key, and attach note files. That's what turns "I think that's fine but it'll take time" into an answer that references the actual codebase and the actual open tickets.
 
-- **One-way**: Source language → Target language (e.g., Japanese → Vietnamese)
-- **Two-way**: Language A ↔ Language B (e.g., Vietnamese ↔ Japanese) — the app detects who is speaking and translates to the other language automatically
+---
 
-**Setup for video calls** (Zoom, Google Meet, MS Teams):
-1. Audio Source: **Both** (System + Mic)
-2. Translation Type: **Two-way**
-3. Set Language A and Language B
+## Meeting notes
 
-> **Note**: TTS narration is automatically disabled in two-way mode to prevent audio feedback loops (TTS output → mic recapture → re-translation).
+When you press Stop, the app writes a Markdown note:
 
-### 🎙️ TTS Narration
+- **With a project selected** → `<project>-meeting-notes/` *beside* the project folder (e.g. `~/Projects/my-cms` → `~/Projects/my-cms-meeting-notes/2026-08-05-….md`). Beside, not inside, so notes never show up in `git status`.
+- **Without a project** → `~/Documents/meeting-notes/` (configurable).
 
-Read translations aloud in one-way mode — 3 providers:
+Each note opens with the essentials, then the summary, then the full transcript:
 
-| | Edge TTS ⭐ | Google Chirp 3 HD | ElevenLabs |
-|-|-------------|-------------------|------------|
-| **Cost** | Free | Free 1M chars/mo | ~$5/mo+ |
-| **Quality** | ★★★★☆ Neural | ★★★★★ Near-human | ★★★★★ Premium |
-| **Vietnamese** | ✅ 2 voices | ✅ 6 voices | ✅ Yes |
-| **Setup** | None | Google Cloud API key | API key |
-| **Speed control** | ✅ | ✅ 0.5x–2.0x | ❌ |
+```markdown
+# Đánh giá công số renew CMS thay vì migration
 
-TTS is **OFF by default** — toggle with the TTS button or `⌘ T`.
+- Ngày giờ: 2026-08-05 14:00 · 42 phút
+- Dự án: my-cms
+- Ngôn ngữ: Japanese → Vietnamese · Engine: soniox
+- Người nói: Tanaka (#1), Minh (#2)
+- Số câu: 184
 
-> 📖 TTS guide: [English](docs/tts_guide.md) · [Tiếng Việt](docs/tts_guide_vi.md)
+## Tóm tắt
+CHỦ ĐỀ: …
+QUYẾT ĐỊNH: …
+ACTIONS:
+- Gửi ước tính sơ bộ · Minh · thứ Tư tuần sau
 
-### 📖 Custom Translation Terms
-
-Define how domain-specific words should be translated:
-
-```
-Original sin = Tội nguyên tổ
-Christ = Kitô
-Pneumonia = Viêm phổi
+## Transcript
+**Tanaka**
+[14:00:12] Hôm nay tôi muốn trao đổi về việc làm mới lại CMS.
+> 今日はCMSリニューアルの件について相談したいと思います。
 ```
 
-Add terms in Settings → Translation → Translation terms. Great for religious, medical, or technical content.
-
-### ⚡ OpenAI Realtime Mode
-
-Single-call streaming translation via OpenAI's `gpt-realtime-translate` (May 2026 GA). Returns **translated text *and* translated speech audio** over one WebSocket — no separate TTS step, lower end-to-end latency, more idiomatic output. Trade-off: **~$4/hr**, charged to your own OpenAI account. 13 target languages: en, es, pt, fr, de, it, ru, hi, id, vi, ja, ko, zh.
-
-Two-way mode and the custom TTS toggle are unavailable while OpenAI Realtime is selected (audio is native).
-
-### 🌏 Qwen LiveTranslate Flash Mode
-
-Alibaba DashScope `qwen3-livetranslate-flash-realtime` — streams **translated text** (no native voice) on Qwen's **free preview tier**, with a **60-language picker** matching the mobile app. Server-side VAD handles turn detection, so it works with mic / system audio / both. Translation-only display (no source-transcript panel; the model doesn't expose ASR). Get a key from [Alibaba Cloud Bailian](https://bailian.console.alibabacloud.com) (Singapore region only — other regions hit a different endpoint and fail).
-
-Source language must be picked explicitly (auto-detect is disabled on this engine — Live Flash stalls on real mic input when source is "auto"). Two-way mode and the custom TTS toggle are also disabled while Qwen is selected.
-
-### 🖥️ Local Mode (Apple Silicon only)
-
-Experimental offline mode using MLX + Whisper + Gemma — runs 100% on-device. JA/EN/ZH/KO → VI/EN.
+Sessions are also autosaved every 15s to Application Support, so a crash costs at most one autosave interval.
 
 ---
 
-## Privacy
+## Setup
 
-**Your audio never touches our servers — because there are none.**
+1. **Soniox key** — Settings → Engine dịch. Get one at [console.soniox.com](https://console.soniox.com).
+2. **Assistant backend** — Settings → Trợ lý AI. Leave it on *Claude Code CLI* if you have Claude Code installed and logged in (press **Test** to confirm), or switch to the API and paste a key.
+3. **Meeting profile** — add your project folder so the assistant has real context.
+4. **Two-way mode** — Settings → Engine dịch → Kiểu dịch: *Hai chiều*, languages JA ⇄ VI. For video calls set Audio source to **Cả hai** (system + mic).
 
-- App connects **directly** to APIs you configure — no relay, no middleman
-- **You own your API keys** — stored locally, never transmitted elsewhere
-- **No account, no telemetry, no analytics** — zero tracking
-- Transcripts saved as `.md` files locally, per session
+## Keyboard shortcuts
 
----
+| Shortcut | Action |
+|---|---|
+| `⌘↩` | Start / stop |
+| `⌘1` / `⌘2` / `⌘3` | Audio source: system / mic / both |
+| `⌘,` | Settings |
+| `⌘P` | Pin on top |
+| `⌘D` | Compact — hide the toolbar |
+| `⌘E` | Expand / shrink the window |
+| `⌘M` | Minimize |
+| `Esc` | Back to the main view |
 
-## Tech Stack
-
-- **[Tauri 2](https://tauri.app/)** — Rust backend + WebView frontend
-- **[ScreenCaptureKit](https://developer.apple.com/documentation/screencapturekit)** — macOS system audio
-- **[WASAPI](https://learn.microsoft.com/en-us/windows/win32/coreaudio/wasapi)** — Windows system audio
-- **[cpal](https://github.com/RustAudio/cpal)** — Cross-platform microphone
-- **[Soniox](https://soniox.com)** — Real-time STT + translation
-- **[OpenAI Realtime Translate](https://platform.openai.com/docs/guides/realtime)** — `gpt-realtime-translate` (text + native voice)
-- **[MLX](https://github.com/ml-explore/mlx)** — On-device Whisper + Gemma for offline mode
-- **[Piper](https://github.com/rhasspy/piper) via [sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx)** — Local offline neural TTS (on-device, no network)
-- **[Edge TTS](https://learn.microsoft.com/en-us/azure/ai-services/speech-service/index-text-to-speech)** — Free neural TTS (default)
-- **[Google Cloud TTS](https://cloud.google.com/text-to-speech)** — Chirp 3 HD (near-human quality)
-- **[ElevenLabs](https://elevenlabs.io)** — Premium TTS
-
----
-
-## Build from Source
+## Build from source
 
 ```bash
-git clone https://github.com/phuc-nt/my-translator.git
-cd my-translator
 npm install
 npm run tauri build
 ```
 
-Requires: Rust (stable), Node.js 18+, macOS 13+ or Windows 10+.
+Requires Rust (stable), Node 18+, macOS 13+.
 
----
+```bash
+npm run tauri dev
+```
 
-## Star History
+For UI-only work without the Rust backend, `npm run dev:web` serves `src/` on `:3111` with the Tauri APIs mocked.
 
-<a href="https://www.star-history.com/?repos=phuc-nt%2Fmy-translator&type=date&legend=top-left">
- <picture>
-  <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/image?repos=phuc-nt/my-translator&type=date&theme=dark&legend=top-left" />
-  <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/image?repos=phuc-nt/my-translator&type=date&legend=top-left" />
-  <img alt="Star History Chart" src="https://api.star-history.com/image?repos=phuc-nt/my-translator&type=date&legend=top-left" />
- </picture>
-</a>
+## Privacy
 
----
+The app talks directly to the APIs you configure — there is no server in between. Audio goes to Soniox (or nowhere at all in Local MLX mode); meeting text goes to Claude only when the assistant runs. Keys and transcripts stay on your machine.
 
 ## License
 
-MIT
+MIT — as the upstream project.

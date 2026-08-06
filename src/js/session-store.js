@@ -17,7 +17,7 @@ export class SessionStore {
         this.createdAt = null;
         this.endedAt = null;
         this.title = '';
-        this.engine = null;            // 'openai' | 'soniox' | 'local'
+        this.engine = null;            // 'soniox' | 'local'
         this.sourceLang = '';
         this.targetLang = '';
         this.chunks = [];

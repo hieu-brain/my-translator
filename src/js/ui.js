@@ -1,87 +1,100 @@
 /**
- * Transcript UI — continuous paragraph flow display with speaker diarization
- * 
- * Design: All text flows as one continuous paragraph.
- * - Translated text: white (primary color)
- * - Original text (pending translation): cyan/accent color  
- * - Provisional text (being recognized): dimmed
- * - Speaker labels: shown when speaker changes (e.g. "Speaker 1:")
- * - Language badges: shown when detected language changes (e.g. "🇯🇵 JA")
- * - Confidence: low-confidence segments highlighted
+ * TranscriptUI — caption-block transcript for bilingual meetings.
+ *
+ * Each utterance renders as one block: an optional speaker row (avatar, editable
+ * name, source → target language pills, timestamp), the translation in the
+ * target language as the large primary line, and the original underneath,
+ * smaller and dimmed. Original and translation therefore stay physically
+ * together — the two-column layout this replaces let them drift apart as the
+ * columns scrolled at different rates.
+ *
+ * A block is clickable: selecting one is how the user asks the meeting
+ * assistant for reply suggestions to that specific sentence.
+ *
+ * `segments` is the render window (trimmed to keep the DOM small); `sessionLog`
+ * is the complete meeting and is never trimmed — export reads from it, which is
+ * why exports no longer lose the beginning of a long meeting.
  */
+
+const SPEAKER_CLASSES = ['spk-a', 'spk-b', 'spk-c', 'spk-d'];
 
 export class TranscriptUI {
     constructor(container) {
         this.container = container;
         this.contentEl = null;
+        this.placeholderEl = container.querySelector('.transcript-placeholder');
         this.maxChars = 1200;
         this.fontSize = 16;
-        this.viewMode = 'single'; // 'single' or 'dual'
+        /** 'dual' shows the original line, 'single' hides it. */
+        this.viewMode = 'dual';
 
-        // Segments: each has { original, translation, status, speaker, language, confidence }
         this.segments = [];
-        // sessionLog: parallel array — never trimmed, holds complete session history
         this.sessionLog = [];
         this.provisionalText = '';
         this.provisionalSpeaker = null;
         this.provisionalLanguage = null;
-        // Source-side provisional (OpenAI Realtime: source ASR is separate from target).
-        // Soniox leaves this empty; its provisionalText carries the source-language ASR.
-        this.sourceProvisionalText = '';
-        // Provider hint — Soniox puts source-language in provisionalText; OpenAI
-        // splits source/target streams; Qwen Live Flash emits target-only.
-        // Backing field for the `provider` getter/setter below.
-        this._provider = 'soniox';
-        this.currentSpeaker = null; // Track current speaker to detect changes
-        this.currentLanguage = null; // Track current language to detect changes
-        this.lastConfidence = null; // Last confidence score from Soniox
+
+        this.currentSpeaker = null;
+        this.currentLanguage = null;
+        this.lastConfidence = null;
+
+        /** Display names keyed by speaker id, e.g. {1: 'Tanaka'}. */
+        this.speakerNames = {};
+        /** Stable spk-* class per speaker id, assigned first-seen-first. */
+        this._speakerClasses = {};
+        this._nextSpeakerClass = 0;
+
+        this.selectedSegId = null;
+        this._segCounter = 0;
+        /** Set by the app: called with the selected segment (or null). */
+        this.onSelect = null;
+        /** Set by the app: called with (speakerId, newName). */
+        this.onSpeakerRename = null;
+
+        this._bindDelegatedEvents();
     }
 
-    get provider() {
-        return this._provider;
-    }
+    // ─── Configuration ─────────────────────────────────────
 
-    set provider(value) {
-        this._provider = value;
-        // Qwen Live Flash has no source channel — strip the dual-view CSS class
-        // so the overlay reverts to single-column layout even if viewMode='dual'.
-        const overlay = document.getElementById('overlay-view');
-        if (overlay) {
-            const wantsDual = this.viewMode === 'dual' && value !== 'qwen';
-            overlay.classList.toggle('dual-view', wantsDual);
-        }
-    }
-
-    /**
-     * Update display settings
-     */
-    configure({ maxLines, showOriginal, fontSize, fontColor, viewMode }) {
+    configure({ maxLines, fontSize, fontColor, viewMode, furigana } = {}) {
         if (maxLines !== undefined) this.maxChars = maxLines * 160;
         if (fontSize !== undefined) {
             this.fontSize = fontSize;
-            this.container.style.setProperty('--transcript-font-size', `${fontSize}px`);
+            document.documentElement.style.setProperty('--transcript-font-size', `${fontSize}px`);
         }
         if (fontColor !== undefined) {
-            this.fontColor = fontColor;
-            this.container.style.setProperty('--transcript-font-color', fontColor);
+            document.documentElement.style.setProperty('--transcript-font-color', fontColor);
         }
         if (viewMode !== undefined) {
             this.viewMode = viewMode;
             const overlay = document.getElementById('overlay-view');
-            if (overlay) {
-                const wantsDual = viewMode === 'dual' && this._provider !== 'qwen';
-                overlay.classList.toggle('dual-view', wantsDual);
-            }
-            this._render();
+            if (overlay) overlay.classList.toggle('single-view', viewMode !== 'dual');
+        }
+        if (furigana !== undefined) {
+            document.body.classList.toggle('furigana-on', !!furigana);
         }
     }
 
-    /**
-     * Add finalized original text (pending translation)
-     */
-    addOriginal(text, speaker, language) {
-        this._removeListening();
+    /** Language pair for the header pills, e.g. {a: 'ja', b: 'vi'}. */
+    setLanguagePair(sourceLang, targetLang) {
+        this.sourceLang = sourceLang || null;
+        this.targetLang = targetLang || null;
+    }
+
+    setSpeakerName(speakerId, name) {
+        if (!speakerId) return;
+        this.speakerNames[speakerId] = name;
+        this._render();
+    }
+
+    // ─── Content ───────────────────────────────────────────
+
+    /** Add a finalized source-language utterance, awaiting its translation. */
+    addOriginal(text, speaker = null, language = null) {
+        if (!text || !text.trim()) return;
+
         const seg = {
+            id: `seg-${++this._segCounter}`,
             original: text,
             translation: null,
             status: 'original',
@@ -91,16 +104,8 @@ export class TranscriptUI {
             createdAt: Date.now(),
         };
         this.segments.push(seg);
-        // Also push a separate copy to sessionLog (never trimmed)
-        this.sessionLog.push({
-            original: text,
-            translation: null,
-            status: 'original',
-            speaker: speaker || null,
-            language: language || null,
-            confidence: this.lastConfidence,
-            createdAt: seg.createdAt,
-        });
+        this.sessionLog.push({ ...seg });
+
         if (speaker) this.currentSpeaker = speaker;
         if (language) this.currentLanguage = language;
         this._cleanupStaleOriginals();
@@ -108,511 +113,533 @@ export class TranscriptUI {
     }
 
     /**
-     * Apply translation to the oldest untranslated segment
+     * Attach a translation to the oldest untranslated segment. Soniox emits the
+     * translation as a separate token stream, so the pairing is positional.
      */
     addTranslation(text) {
-        const seg = this.segments.find(s => s.status === 'original');
-        if (seg) {
-            seg.translation = text;
-            seg.status = 'translated';
-            // Mirror update in sessionLog: find matching entry by createdAt
-            const logSeg = this.sessionLog.find(
-                s => s.status === 'original' && s.createdAt === seg.createdAt
+        if (!text || !text.trim()) return;
+
+        const pending = this.segments.find((s) => s.status === 'original');
+        if (pending) {
+            pending.translation = text;
+            pending.status = 'translated';
+            const logged = this.sessionLog.find(
+                (s) => s.id === pending.id
             );
-            if (logSeg) {
-                logSeg.translation = text;
-                logSeg.status = 'translated';
+            if (logged) {
+                logged.translation = text;
+                logged.status = 'translated';
             }
         } else {
-            const newSeg = {
-                original: '',
+            // Translation with no pending source (engine restarted mid-stream):
+            // keep it rather than dropping the user's content on the floor.
+            const seg = {
+                id: `seg-${++this._segCounter}`,
+                original: null,
                 translation: text,
                 status: 'translated',
-                speaker: null,
+                speaker: this.currentSpeaker,
+                language: this.currentLanguage,
+                confidence: this.lastConfidence,
                 createdAt: Date.now(),
             };
-            this.segments.push(newSeg);
-            this.sessionLog.push({ ...newSeg });
+            this.segments.push(seg);
+            this.sessionLog.push({ ...seg });
         }
         this._render();
     }
 
-    /**
-     * Update provisional (in-progress) text
-     */
-    setProvisional(text, speaker, language) {
-        this._removeListening();
-        this.provisionalText = text;
-        this.provisionalSpeaker = speaker || null;
-        this.provisionalLanguage = language || null;
-        this._render();
+    setProvisional(text, speaker = null, language = null) {
+        this.provisionalText = text || '';
+        this.provisionalSpeaker = speaker || this.currentSpeaker;
+        this.provisionalLanguage = language || this.currentLanguage;
+        this._renderProvisional();
     }
 
-    /**
-     * Clear provisional text
-     */
     clearProvisional() {
+        if (!this.provisionalText) return;
         this.provisionalText = '';
-        this.provisionalSpeaker = null;
-        this.provisionalLanguage = null;
-        this._render();
+        this._renderProvisional();
     }
 
-    /**
-     * Set source-side provisional (OpenAI Realtime only). Renders on the source
-     * panel in dual view; ignored in single view (which shows target only).
-     */
-    setSourceProvisional(text) {
-        this._removeListening();
-        this.sourceProvisionalText = text || '';
-        this._render();
-    }
-
-    clearSourceProvisional() {
-        this.sourceProvisionalText = '';
-        this._render();
-    }
-
-    /**
-     * Check if there is any content to display
-     */
-    hasContent() {
-        return this.segments.length > 0 || this.provisionalText ||
-            !!this.container.querySelector('.listening-indicator');
-    }
-
-    /**
-     * Show placeholder state
-     */
-    showPlaceholder() {
-        this.container.innerHTML = `
-      <div class="transcript-placeholder">
-        <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" opacity="0.4">
-          <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/>
-          <path d="M19 10v2a7 7 0 0 1-14 0v-2"/>
-          <line x1="12" y1="19" x2="12" y2="23"/>
-          <line x1="8" y1="23" x2="16" y2="23"/>
-        </svg>
-        <p>Press ▶ to start translating</p>
-        <p class="shortcut-hint">⌘ Enter</p>
-      </div>
-    `;
-        this.segments = [];
-        this.sessionLog = [];
-        this.provisionalText = '';
-        this.provisionalSpeaker = null;
-        this.provisionalLanguage = null;
-        this.currentSpeaker = null;
-        this.currentLanguage = null;
-        this.lastConfidence = null;
-        this.contentEl = null;
-    }
-
-    /**
-     * Show listening state
-     */
-    showListening() {
-        // Remove existing indicators first (prevent duplicates)
-        this.container.querySelectorAll('.listening-indicator').forEach(el => el.remove());
-
-        const placeholder = this.container.querySelector('.transcript-placeholder');
-        if (placeholder) placeholder.remove();
-
-        this._ensureContent();
-
-        const indicator = document.createElement('div');
-        indicator.className = 'listening-indicator';
-        indicator.innerHTML = `
-            <div class="listening-waves">
-                <span></span><span></span><span></span><span></span><span></span>
-            </div>
-            <p>Listening...</p>
-        `;
-        this.contentEl.appendChild(indicator);
-    }
-
-    /**
-     * Show status message in transcript area (e.g. loading model)
-     */
-    showStatusMessage(message) {
-        this._ensureContent();
-        let statusEl = this.contentEl.querySelector('.pipeline-status');
-        if (!statusEl) {
-            statusEl = document.createElement('div');
-            statusEl.className = 'pipeline-status';
-            statusEl.style.cssText = 'text-align:center; padding:8px; color:rgba(255,255,255,0.5); font-size:13px;';
-            this.contentEl.appendChild(statusEl);
-        }
-        statusEl.textContent = message;
-    }
-
-    /**
-     * Remove status message
-     */
-    removeStatusMessage() {
-        if (this.contentEl) {
-            const statusEl = this.contentEl.querySelector('.pipeline-status');
-            if (statusEl) statusEl.remove();
-        }
-    }
-
-    /**
-     * Get transcript as plain text for copying
-     */
-    getPlainText() {
-        let lines = [];
-        for (const seg of this.segments) {
-            if (seg.original) lines.push(seg.original);
-            if (seg.translation) lines.push(seg.translation);
-            if (seg.original || seg.translation) lines.push('');
-        }
-        if (this.provisionalText) lines.push(this.provisionalText);
-        return lines.join('\n').trim();
-    }
-
-    /**
-     * Get formatted content for saving to file (markdown with metadata)
-     */
-    getFormattedContent(metadata = {}) {
-        if (this.segments.length === 0) return null;
-
-        const lines = [];
-
-        // Metadata header
-        lines.push('---');
-        lines.push(`date: ${new Date().toISOString()}`);
-        if (metadata.model) lines.push(`model: ${metadata.model}`);
-        if (metadata.sourceLang) lines.push(`source_language: ${metadata.sourceLang}`);
-        if (metadata.targetLang) lines.push(`target_language: ${metadata.targetLang}`);
-        if (metadata.duration) lines.push(`recording_duration: ${metadata.duration}`);
-        if (metadata.audioSource) lines.push(`audio_source: ${metadata.audioSource}`);
-        lines.push(`segments: ${this.segments.length}`);
-        lines.push('---');
-        lines.push('');
-
-        // Transcript entries
-        for (const seg of this.segments) {
-            if (seg.speaker) lines.push(`**Speaker ${seg.speaker}:**`);
-            if (seg.original) lines.push(`> ${seg.original}`);
-            if (seg.translation) lines.push(seg.translation);
-            lines.push('');
-        }
-
-        return lines.join('\n').trim();
-    }
-
-    /**
-     * Check if there are segments to save
-     */
-    hasSegments() {
-        return this.segments.length > 0;
-    }
-
-    /**
-     * Check if sessionLog has content (full session, not display buffer)
-     */
-    hasSessionContent() {
-        return this.sessionLog.length > 0;
-    }
-
-    /**
-     * Get full session text from sessionLog (never trimmed).
-     * Returns formatted markdown with all segments.
-     */
-    getFullSessionText(metadata = {}) {
-        if (this.sessionLog.length === 0) return null;
-
-        const lines = [];
-
-        // YAML frontmatter
-        lines.push('---');
-        const now = new Date();
-        lines.push(`date: ${now.toISOString().slice(0, 10)}`);
-        lines.push(`time: ${now.toTimeString().slice(0, 8)}`);
-        if (metadata.duration) lines.push(`duration: ${metadata.duration}`);
-        if (metadata.sourceLang) lines.push(`source_lang: ${metadata.sourceLang}`);
-        if (metadata.targetLang) lines.push(`target_lang: ${metadata.targetLang}`);
-        if (metadata.mode) lines.push(`mode: ${metadata.mode}`);
-        if (metadata.audioSource) lines.push(`audio_source: ${metadata.audioSource}`);
-        if (metadata.model) lines.push(`model: ${metadata.model}`);
-        lines.push(`segments: ${this.sessionLog.length}`);
-        lines.push('---');
-        lines.push('');
-
-        // Transcript entries
-        for (const seg of this.sessionLog) {
-            if (seg.speaker) lines.push(`**Speaker ${seg.speaker}:**`);
-            if (seg.original) lines.push(`> ${seg.original}`);
-            if (seg.translation) lines.push(seg.translation);
-            lines.push('');
-        }
-
-        return lines.join('\n').trim();
-    }
-
-    /**
-     * Clear session log (call after saving)
-     */
-    clearSession() {
-        this.sessionLog = [];
-    }
-
-    /**
-     * Clear display buffer only (segments array).
-     * sessionLog is NOT cleared — use clearSession() explicitly.
-     */
-    clear() {
-        this.container.innerHTML = '';
-        this.segments = [];
-        this.provisionalText = '';
-        this.provisionalSpeaker = null;
-        this.provisionalLanguage = null;
-        this.currentSpeaker = null;
-        this.currentLanguage = null;
-        this.lastConfidence = null;
-        this.contentEl = null;
-    }
-
-    /**
-     * Update confidence score
-     */
     setConfidence(confidence) {
         this.lastConfidence = confidence;
     }
 
-    // ─── Internal ──────────────────────────────────────────
-
-    _ensureContent() {
-        if (!this.contentEl) {
-            this.container.innerHTML = '';
-            this.contentEl = document.createElement('div');
-            this.contentEl.className = 'transcript-flow';
-            this.container.appendChild(this.contentEl);
-        }
+    clear() {
+        this.segments = [];
+        this.sessionLog = [];
+        this.provisionalText = '';
+        this.currentSpeaker = null;
+        this.currentLanguage = null;
+        this.selectedSegId = null;
+        this._segCounter = 0;
+        this._ensureContent();
+        this.contentEl.innerHTML = '';
+        this._removeStatus();
+        this.showPlaceholder();
+        if (this.onSelect) this.onSelect(null);
     }
 
-    _removeListening() {
-        const indicator = this.container.querySelector('.listening-indicator');
-        if (indicator) indicator.remove();
+    hasContent() {
+        return this.sessionLog.length > 0;
+    }
+
+    // ─── Placeholder / status ──────────────────────────────
+
+    showPlaceholder() {
+        this.container.classList.add('empty');
+    }
+
+    hidePlaceholder() {
+        this.container.classList.remove('empty');
+    }
+
+    showListening() {
+        this.hidePlaceholder();
+        this._ensureContent();
+        if (this.container.querySelector('.listening-indicator')) return;
+        const el = document.createElement('div');
+        el.className = 'listening-indicator';
+        el.innerHTML = '<span class="prov-dots"><span>●</span><span>●</span><span>●</span></span>';
+        this.container.appendChild(el);
+    }
+
+    removeListening() {
+        const el = this.container.querySelector('.listening-indicator');
+        if (el) el.remove();
+    }
+
+    showStatusMessage(message) {
+        this.hidePlaceholder();
+        let el = this.container.querySelector('.pipeline-status');
+        if (!el) {
+            el = document.createElement('div');
+            el.className = 'pipeline-status';
+            this.container.appendChild(el);
+        }
+        el.textContent = message;
+    }
+
+    removeStatusMessage() {
+        this._removeStatus();
+    }
+
+    _removeStatus() {
+        const el = this.container.querySelector('.pipeline-status');
+        if (el) el.remove();
+        this.removeListening();
+    }
+
+    // ─── Selection ─────────────────────────────────────────
+
+    getSelectedSegment() {
+        if (!this.selectedSegId) return null;
+        return this.sessionLog.find((s) => s.id === this.selectedSegId) || null;
+    }
+
+    /** The most recent finished utterance — what "trả lời câu vừa rồi" means. */
+    getLastSegment() {
+        for (let i = this.sessionLog.length - 1; i >= 0; i--) {
+            if (this.sessionLog[i].translation || this.sessionLog[i].original) {
+                return this.sessionLog[i];
+            }
+        }
+        return null;
+    }
+
+    selectSegment(segId) {
+        this.selectedSegId = segId || null;
+        this.contentEl?.querySelectorAll('.seg-block').forEach((el) => {
+            el.classList.toggle('selected', el.dataset.segId === this.selectedSegId);
+        });
+        if (this.onSelect) this.onSelect(this.getSelectedSegment());
+    }
+
+    _bindDelegatedEvents() {
+        this.container.addEventListener('click', (e) => {
+            // Renaming a speaker must not also select the block underneath.
+            const label = e.target.closest('.speaker-label');
+            if (label && label.dataset.speaker) {
+                e.stopPropagation();
+                this._startRename(label);
+                return;
+            }
+
+            const tk = e.target.closest('.tk[data-gloss]');
+            if (tk) {
+                e.stopPropagation();
+                const wasOpen = tk.classList.contains('pop-open');
+                this.container.querySelectorAll('.tk.pop-open')
+                    .forEach((el) => el.classList.remove('pop-open'));
+                tk.classList.toggle('pop-open', !wasOpen);
+                return;
+            }
+
+            const block = e.target.closest('.seg-block');
+            if (!block || block.classList.contains('seg-provisional-block')) return;
+            const id = block.dataset.segId;
+            this.selectSegment(this.selectedSegId === id ? null : id);
+        });
+    }
+
+    _startRename(label) {
+        const speakerId = label.dataset.speaker;
+        const input = document.createElement('input');
+        input.className = 'speaker-name-input';
+        input.value = this.speakerNames[speakerId] || `Speaker ${speakerId}`;
+        label.replaceWith(input);
+        input.focus();
+        input.select();
+
+        const commit = () => {
+            const name = input.value.trim();
+            if (name) {
+                this.speakerNames[speakerId] = name;
+                if (this.onSpeakerRename) this.onSpeakerRename(speakerId, name);
+            }
+            this._render();
+        };
+        input.addEventListener('blur', commit, { once: true });
+        input.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') input.blur();
+            if (e.key === 'Escape') {
+                input.value = '';
+                this._render();
+            }
+        });
+    }
+
+    // ─── Rendering ─────────────────────────────────────────
+
+    _ensureContent() {
+        if (!this.contentEl || !this.contentEl.isConnected) {
+            this.contentEl = this.container.querySelector('.transcript-flow');
+            if (!this.contentEl) {
+                this.contentEl = document.createElement('div');
+                this.contentEl.className = 'transcript-flow';
+                this.container.insertBefore(this.contentEl, this.container.firstChild);
+            }
+        }
+        return this.contentEl;
     }
 
     _render() {
         this._ensureContent();
         this._trimSegments();
+        if (this.segments.length) this.hidePlaceholder();
 
-        // Qwen Live Flash is translation-only (no source transcript channel),
-        // so force single-panel even when the user picked dual view — otherwise
-        // the source panel sits empty / shows dim provisional noise.
-        if (this.viewMode === 'dual' && this.provider !== 'qwen') {
-            this._renderDual();
-        } else {
-            this._renderSingle();
-        }
-    }
-
-    _renderSingle() {
+        const atBottom = this._isNearBottom();
         let html = '';
-        let lastRenderedSpeaker = null;
-        let lastRenderedLang = null;
+        let lastSpeaker = null;
 
         for (const seg of this.segments) {
-            // Speaker label
-            if (seg.speaker && seg.speaker !== lastRenderedSpeaker) {
-                html += `<span class="speaker-label">Speaker ${seg.speaker}:</span> `;
-                lastRenderedSpeaker = seg.speaker;
+            if (seg.status === 'original' && !seg.translation) {
+                // Source captured, translation still in flight — showing the raw
+                // source as the big line then swapping it for the translation
+                // reads as flicker, so hold the block back one beat.
+                continue;
             }
-
-            // Language badge
-            if (seg.language && seg.language !== lastRenderedLang) {
-                html += `<span class="lang-badge">${this._langEmoji(seg.language)}</span> `;
-                lastRenderedLang = seg.language;
-            }
-
-            if (seg.status === 'translated' && seg.translation) {
-                const confidenceClass = (seg.confidence !== null && seg.confidence < 0.7) ? ' low-confidence' : '';
-                html += `<div class="seg-block">`;
-                html += `<div class="seg-translated${confidenceClass}">${this._esc(seg.translation)}</div>`;
-                html += `</div>`;
-            }
-            // Skip 'original' segments in single mode — wait for translation
-        }
-
-        if (this.provisionalText) {
-            if (this.provisionalSpeaker && this.provisionalSpeaker !== lastRenderedSpeaker) {
-                html += `<span class="speaker-label">Speaker ${this.provisionalSpeaker}:</span> `;
-            }
-            if (this.provisionalLanguage && this.provisionalLanguage !== lastRenderedLang) {
-                html += `<span class="lang-badge">${this._langEmoji(this.provisionalLanguage)}</span> `;
-            }
-            // OpenAI splits source/target streams: when sourceProvisionalText is
-            // present, provisionalText is already the translated stream → render
-            // as bright translated text. Qwen Live Flash is translation-only —
-            // provisionalText is the target language too. Soniox uses
-            // provisionalText for source ASR → keep dim italic.
-            const isTargetStream = this.sourceProvisionalText || this.provider === 'qwen';
-            const cls = isTargetStream ? 'seg-translated' : 'seg-provisional';
-            html += `<div class="seg-block"><div class="${cls}">${this._esc(this.provisionalText)}</div></div>`;
+            const showSpeakerRow = seg.speaker && seg.speaker !== lastSpeaker;
+            if (seg.speaker) lastSpeaker = seg.speaker;
+            html += this._renderBlock(seg, showSpeakerRow);
         }
 
         this.contentEl.innerHTML = html;
-        // #transcript-content is the scroller since the activity-shell redesign
-        // (its parent #transcript-container is overflow:hidden). Scroll whichever
-        // actually overflows so this stays correct if the layout shifts again.
-        const parent = this.container.parentElement;
-        const scroller = (this.container.scrollHeight > this.container.clientHeight || !parent)
-            ? this.container : parent;
-        this._smartScroll(scroller);
+        this._renderProvisional();
+        if (atBottom) this._scrollToBottom();
     }
 
-    _renderDual() {
-        // Save scroll state before re-render
-        const oldSrcPanel = this.contentEl.querySelector('.panel-source');
-        const oldTgtPanel = this.contentEl.querySelector('.panel-translation');
-        const srcScrollState = oldSrcPanel ? this._getScrollState(oldSrcPanel) : { nearBottom: true, scrollTop: 0 };
-        const tgtScrollState = oldTgtPanel ? this._getScrollState(oldTgtPanel) : { nearBottom: true, scrollTop: 0 };
+    _renderBlock(seg, showSpeakerRow) {
+        const spkClass = this._speakerClass(seg.speaker);
+        const selected = seg.id === this.selectedSegId ? ' selected' : '';
+        const lowConf =
+            seg.confidence !== null && seg.confidence !== undefined && seg.confidence < 0.7
+                ? ' low-confidence'
+                : '';
 
-        let srcHtml = '';
-        let tgtHtml = '';
-        let lastSpeaker = null;
-        let lastLang = null;
+        let html = `<div class="seg-block ${spkClass}${selected}" data-seg-id="${seg.id}">`;
+        if (showSpeakerRow) html += this._renderSpeakerRow(seg);
 
-        for (const seg of this.segments) {
-            let speakerHtml = '';
-            if (seg.speaker && seg.speaker !== lastSpeaker) {
-                speakerHtml = `<div class="speaker-label">Speaker ${seg.speaker}:</div>`;
-                lastSpeaker = seg.speaker;
+        const targetLang = this._targetLangFor(seg);
+        const translated = seg.translation || seg.original || '';
+        const tgtJa = targetLang === 'ja' ? ' ja' : '';
+        html += `<span class="seg-translated${tgtJa}${lowConf}">${this._decorate(translated, targetLang)}</span>`;
+
+        if (seg.original && seg.translation) {
+            const srcJa = seg.language === 'ja' ? ' ja' : '';
+            html += `<span class="seg-original${srcJa}">${this._decorate(seg.original, seg.language)}</span>`;
+        }
+        html += '</div>';
+        return html;
+    }
+
+    _renderSpeakerRow(seg) {
+        const id = seg.speaker;
+        const name = this.speakerNames[id] || `Speaker ${id}`;
+        const initial = this._esc(name.trim().charAt(0).toUpperCase() || '?');
+        const src = (seg.language || this.sourceLang || '').toUpperCase();
+        const tgt = (this._targetLangFor(seg) || '').toUpperCase();
+        const time = new Date(seg.createdAt || Date.now()).toTimeString().slice(0, 5);
+
+        let row = '<div class="speaker-row">';
+        row += `<span class="speaker-avatar">${initial}</span>`;
+        row += `<button class="speaker-label" type="button" data-speaker="${this._escAttr(id)}" title="Click để đổi tên">${this._esc(name)}</button>`;
+        if (src) row += `<span class="lang-badge">${this._esc(src)}</span>`;
+        if (src && tgt && src !== tgt) {
+            row += '<svg class="lang-arrow" width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg>';
+            row += `<span class="lang-badge target">${this._esc(tgt)}</span>`;
+        }
+        row += `<span class="seg-time">${time}</span>`;
+        row += '</div>';
+        return row;
+    }
+
+    _renderProvisional() {
+        this._ensureContent();
+        const existing = this.contentEl.querySelector('.seg-provisional-block');
+
+        if (!this.provisionalText) {
+            if (existing) existing.remove();
+            return;
+        }
+        this.hidePlaceholder();
+
+        const lang = this.provisionalLanguage;
+        const ja = lang === 'ja' ? ' ja' : '';
+        const inner =
+            `<span class="seg-provisional${ja}">${this._esc(this.provisionalText)}` +
+            '<span class="prov-dots"><span>●</span><span>●</span><span>●</span></span></span>';
+
+        if (existing) {
+            // Replace in place: removing and re-appending the node makes the
+            // caret-like dots restart and the block visibly flash on every
+            // partial-token update, which arrive several times per second.
+            const body = existing.querySelector('.seg-provisional');
+            if (body) {
+                body.className = `seg-provisional${ja}`;
+                body.innerHTML =
+                    `${this._esc(this.provisionalText)}<span class="prov-dots"><span>●</span><span>●</span><span>●</span></span>`;
+                return;
             }
-
-            let langHtml = '';
-            if (seg.language && seg.language !== lastLang) {
-                langHtml = `<span class="lang-badge">${this._langEmoji(seg.language)}</span> `;
-                lastLang = seg.language;
-            }
-
-            if (seg.status === 'translated' && seg.translation) {
-                const confidenceClass = (seg.confidence !== null && seg.confidence < 0.7) ? ' low-confidence' : '';
-                srcHtml += speakerHtml + langHtml;
-                srcHtml += `<div class="seg-text">${this._esc(seg.original || '')}</div>`;
-                tgtHtml += speakerHtml ? '<div class="speaker-label">&nbsp;</div>' : '';
-                tgtHtml += `<div class="seg-text${confidenceClass}">${this._esc(seg.translation)}</div>`;
-            } else if (seg.status === 'original' && seg.original) {
-                srcHtml += speakerHtml + langHtml;
-                srcHtml += `<div class="seg-text pending">${this._esc(seg.original)}</div>`;
-                tgtHtml += speakerHtml ? '<div class="speaker-label">&nbsp;</div>' : '';
-                tgtHtml += `<div class="seg-text pending">...</div>`;
-            }
+            existing.innerHTML = inner;
+            return;
         }
 
-        // Two providers feed provisional text differently:
-        // - Soniox: provisionalText is the source-language ASR (no separate source channel).
-        // - OpenAI Realtime: sourceProvisionalText is source ASR; provisionalText is target.
-        // Use explicit provider flag — checking !!sourceProvisionalText fails when
-        // whisper lags behind translation, dumping target deltas into the source panel.
-        if (this.sourceProvisionalText || this.provisionalText) {
-            const usingOpenAi = this.provider === 'openai';
-            const srcText = usingOpenAi ? this.sourceProvisionalText : this.provisionalText;
-            const tgtText = usingOpenAi ? this.provisionalText : '';
-            if (srcText) srcHtml += `<div class="seg-text pending">${this._esc(srcText)}</div>`;
-            tgtHtml += `<div class="seg-text pending">${tgtText ? this._esc(tgtText) : '...'}</div>`;
+        const atBottom = this._isNearBottom();
+        const block = document.createElement('div');
+        block.className = `seg-block seg-provisional-block ${this._speakerClass(this.provisionalSpeaker)}`;
+        let html = '';
+        if (this.provisionalSpeaker) {
+            const name = this.speakerNames[this.provisionalSpeaker] || `Speaker ${this.provisionalSpeaker}`;
+            html += '<div class="speaker-row">';
+            html += `<span class="speaker-avatar">${this._esc(name.charAt(0).toUpperCase())}</span>`;
+            html += `<span class="speaker-label" style="cursor:default">${this._esc(name)}</span>`;
+            html += '<span class="lang-badge prov-badge">ĐANG NGHE</span>';
+            html += '</div>';
         }
+        block.innerHTML = html + inner;
+        this.contentEl.appendChild(block);
+        if (atBottom) this._scrollToBottom();
+    }
 
-        this.contentEl.innerHTML = `
-            <div class="panel-source">${srcHtml}</div>
-            <div class="panel-translation">${tgtHtml}</div>
-        `;
-
-        // Restore scroll: auto-scroll if was near bottom, otherwise keep position
-        const srcPanel = this.contentEl.querySelector('.panel-source');
-        const tgtPanel = this.contentEl.querySelector('.panel-translation');
-        if (srcPanel) {
-            if (srcScrollState.nearBottom) {
-                srcPanel.scrollTop = srcPanel.scrollHeight;
-            } else {
-                srcPanel.scrollTop = srcScrollState.scrollTop;
-            }
-        }
-        if (tgtPanel) {
-            if (tgtScrollState.nearBottom) {
-                tgtPanel.scrollTop = tgtPanel.scrollHeight;
-            } else {
-                tgtPanel.scrollTop = tgtScrollState.scrollTop;
-            }
+    /**
+     * Wrap Japanese text for the furigana/vocabulary layer.
+     *
+     * A real reading requires morphological analysis (kuromoji/MeCab), which is
+     * not bundled yet. Until it is, text is escaped and returned as-is — the
+     * `.ja` class and the CSS are already in place, so adding a tokenizer later
+     * is a matter of filling in `furiganaProvider` and nothing else.
+     */
+    _decorate(text, lang) {
+        const escaped = this._esc(text);
+        if (lang !== 'ja' || !this.furiganaProvider) return escaped;
+        try {
+            return this.furiganaProvider(text) || escaped;
+        } catch {
+            return escaped;
         }
     }
 
-    _getScrollState(el) {
-        return {
-            nearBottom: (el.scrollHeight - el.scrollTop - el.clientHeight) < 100,
-            scrollTop: el.scrollTop
-        };
+    /** Install a tokenizer that returns ruby-annotated HTML for Japanese text. */
+    setFuriganaProvider(fn) {
+        this.furiganaProvider = fn;
+        this._render();
     }
 
-    _smartScroll(el) {
-        const isNearBottom = (el.scrollHeight - el.scrollTop - el.clientHeight) < 100;
-        if (isNearBottom) {
-            el.scrollTop = el.scrollHeight;
+    _targetLangFor(seg) {
+        // Two-way mode: the target is whichever configured language the speaker
+        // is *not* speaking.
+        if (this.langA && this.langB && seg.language) {
+            if (seg.language === this.langA) return this.langB;
+            if (seg.language === this.langB) return this.langA;
         }
+        return this.targetLang || null;
+    }
+
+    setTwoWayLanguages(langA, langB) {
+        this.langA = langA || null;
+        this.langB = langB || null;
+    }
+
+    _speakerClass(speakerId) {
+        if (!speakerId) return SPEAKER_CLASSES[0];
+        if (!this._speakerClasses[speakerId]) {
+            this._speakerClasses[speakerId] =
+                SPEAKER_CLASSES[this._nextSpeakerClass % SPEAKER_CLASSES.length];
+            this._nextSpeakerClass++;
+        }
+        return this._speakerClasses[speakerId];
     }
 
     _trimSegments() {
-        let totalLen = 0;
-        for (const seg of this.segments) {
-            totalLen += (seg.translation || seg.original || '').length;
-        }
-        while (totalLen > this.maxChars && this.segments.length > 2) {
-            const removed = this.segments.shift();
-            totalLen -= (removed.translation || removed.original || '').length;
+        let total = this.segments.reduce(
+            (n, s) => n + (s.translation?.length || 0) + (s.original?.length || 0),
+            0
+        );
+        while (total > this.maxChars && this.segments.length > 1) {
+            const dropped = this.segments.shift();
+            total -= (dropped.translation?.length || 0) + (dropped.original?.length || 0);
         }
     }
 
     /**
-     * Remove stale original segments that never received translation.
-     * - Originals older than 10s are removed
-     * - Max 3 pending originals allowed (oldest dropped)
+     * Drop source segments that never received a translation. Without this a
+     * single dropped translation token stalls the positional pairing in
+     * `addTranslation` and every later translation lands on the wrong sentence.
      */
     _cleanupStaleOriginals() {
+        const STALE_MS = 15000;
         const now = Date.now();
-        const STALE_MS = 10000; // 10 seconds
-        const MAX_PENDING = 3;
-
-        // Remove originals older than STALE_MS
-        this.segments = this.segments.filter(seg => {
-            if (seg.status === 'original' && (now - seg.createdAt) > STALE_MS) {
-                return false; // drop stale
+        const stale = this.segments.filter(
+            (s) => s.status === 'original' && now - s.createdAt > STALE_MS
+        );
+        for (const s of stale) {
+            s.status = 'translated';
+            s.translation = s.original;
+            const logged = this.sessionLog.find((l) => l.id === s.id);
+            if (logged) {
+                logged.status = 'translated';
+                logged.translation = logged.original;
             }
-            return true;
-        });
-
-        // If still too many pending originals, drop oldest
-        let pending = this.segments.filter(s => s.status === 'original');
-        while (pending.length > MAX_PENDING) {
-            const oldest = pending.shift();
-            const idx = this.segments.indexOf(oldest);
-            if (idx !== -1) this.segments.splice(idx, 1);
         }
     }
 
-    _esc(text) {
+    // ─── Scroll ────────────────────────────────────────────
+
+    _scroller() {
+        // #transcript-content is the scroller; its parent is overflow:hidden.
+        return this.container;
+    }
+
+    _isNearBottom() {
+        const el = this._scroller();
+        if (!el) return true;
+        return el.scrollHeight - el.scrollTop - el.clientHeight < 60;
+    }
+
+    _scrollToBottom() {
+        const el = this._scroller();
+        if (el) el.scrollTop = el.scrollHeight;
+    }
+
+    // ─── Export ────────────────────────────────────────────
+
+    getPlainText() {
+        return this.sessionLog
+            .map((s) => {
+                const parts = [];
+                if (s.speaker) parts.push(`[${this.speakerNames[s.speaker] || `Speaker ${s.speaker}`}]`);
+                if (s.translation) parts.push(s.translation);
+                if (s.original && s.original !== s.translation) parts.push(`(${s.original})`);
+                return parts.join(' ');
+            })
+            .join('\n');
+    }
+
+    /**
+     * Full-session Markdown. `metadata.summary` is the assistant's final rolling
+     * summary — it goes above the transcript so the note opens with what the
+     * meeting decided rather than with minute one of the raw captions.
+     */
+    getFullSessionText(metadata = {}) {
+        if (this.sessionLog.length === 0) return null;
+
+        const lines = [];
+        const now = new Date();
+        const title = metadata.title || 'Cuộc họp';
+
+        lines.push(`# ${title}`);
+        lines.push('');
+        const started = metadata.startedAt ? new Date(metadata.startedAt) : now;
+        const when = `${started.toISOString().slice(0, 10)} ${started.toTimeString().slice(0, 5)}`;
+        lines.push(`- Ngày giờ: ${when}${metadata.duration ? ` · ${metadata.duration}` : ''}`);
+        if (metadata.project) lines.push(`- Dự án: ${metadata.project}`);
+        const pair = metadata.languagePair
+            || [metadata.sourceLang, metadata.targetLang].filter(Boolean).join(' → ');
+        if (pair) lines.push(`- Ngôn ngữ: ${pair}${metadata.mode ? ` · Engine: ${metadata.mode}` : ''}`);
+        const speakers = Object.entries(this.speakerNames)
+            .map(([id, name]) => `${name} (#${id})`)
+            .join(', ');
+        if (speakers) lines.push(`- Người nói: ${speakers}`);
+        lines.push(`- Số câu: ${this.sessionLog.length}`);
+        lines.push('');
+
+        if (metadata.summary) {
+            lines.push('## Tóm tắt');
+            lines.push('');
+            lines.push(metadata.summary.trim());
+            lines.push('');
+        }
+
+        lines.push('## Transcript');
+        lines.push('');
+        let lastSpeaker = null;
+        for (const seg of this.sessionLog) {
+            if (seg.speaker && seg.speaker !== lastSpeaker) {
+                lines.push('');
+                lines.push(`**${this.speakerNames[seg.speaker] || `Speaker ${seg.speaker}`}**`);
+                lastSpeaker = seg.speaker;
+            }
+            const time = new Date(seg.createdAt).toTimeString().slice(0, 8);
+            if (seg.translation) lines.push(`[${time}] ${seg.translation}`);
+            if (seg.original && seg.original !== seg.translation) lines.push(`> ${seg.original}`);
+        }
+
+        return lines.join('\n').trim();
+    }
+
+    /** Compact transcript for the LLM: no timestamps, speaker-prefixed. */
+    getTranscriptForLLM({ sinceIndex = 0, max = 400 } = {}) {
+        return this.sessionLog
+            .slice(sinceIndex, sinceIndex + max)
+            .map((s) => {
+                const who = s.speaker
+                    ? this.speakerNames[s.speaker] || `Speaker ${s.speaker}`
+                    : 'Ai đó';
+                const text = s.translation || s.original || '';
+                const orig = s.original && s.original !== s.translation ? ` // ${s.original}` : '';
+                return `${who}: ${text}${orig}`;
+            })
+            .join('\n');
+    }
+
+    get segmentCount() {
+        return this.sessionLog.length;
+    }
+
+    // ─── Escaping ──────────────────────────────────────────
+
+    _esc(str) {
         const div = document.createElement('div');
-        div.textContent = text;
+        div.textContent = str ?? '';
         return div.innerHTML;
     }
 
-    /**
-     * Get language flag emoji + code
-     */
-    _langEmoji(langCode) {
-        const flags = {
-            'en': '🇬🇧', 'ja': '🇯🇵', 'ko': '🇰🇷', 'zh': '🇨🇳',
-            'vi': '🇻🇳', 'fr': '🇫🇷', 'de': '🇩🇪', 'es': '🇪🇸',
-            'th': '🇹🇭', 'id': '🇮🇩', 'pt': '🇵🇹', 'ru': '🇷🇺',
-            'ar': '🇸🇦', 'hi': '🇮🇳', 'it': '🇮🇹', 'nl': '🇳🇱',
-            'pl': '🇵🇱', 'tr': '🇹🇷', 'sv': '🇸🇪', 'da': '🇩🇰',
-            'no': '🇳🇴', 'fi': '🇫🇮', 'el': '🇬🇷', 'cs': '🇨🇿',
-            'ro': '🇷🇴', 'hu': '🇭🇺', 'uk': '🇺🇦', 'he': '🇮🇱',
-            'ms': '🇲🇾', 'tl': '🇵🇭', 'bn': '🇧🇩', 'ta': '🇱🇰',
-        };
-        const flag = flags[langCode] || '🌐';
-        return `${flag} ${langCode.toUpperCase()}`;
+    _escAttr(str) {
+        return String(str ?? '')
+            .replace(/&/g, '&amp;')
+            .replace(/"/g, '&quot;')
+            .replace(/</g, '&lt;');
     }
 }

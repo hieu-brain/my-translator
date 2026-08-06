@@ -18,21 +18,42 @@ pub struct CustomContext {
     pub translation_terms: Vec<TranslationTerm>,
 }
 
+/// A meeting profile binds a meeting to a project so the assistant can pull
+/// real context (repo docs, Backlog issues, attached notes) and knows where to
+/// write the meeting note when the session ends.
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
+#[serde(default)]
+pub struct MeetingProfile {
+    pub id: String,
+    pub name: String,
+    /// Absolute path to the project folder (reads CLAUDE.md / README / docs).
+    pub project_path: String,
+    /// Backlog project key, e.g. "MYCMS". Empty = no Backlog lookup.
+    pub backlog_project_key: String,
+    /// Extra note files (.md/.txt) attached as context.
+    pub note_files: Vec<String>,
+}
+
 /// App settings — persisted to JSON
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(default)]
 pub struct Settings {
     /// Soniox API key
     pub soniox_api_key: String,
-    /// OpenAI API key (for gpt-realtime-translate)
-    pub openai_api_key: String,
-    /// Alibaba Cloud DashScope API key (for Qwen LiveTranslate Flash)
-    #[serde(default)]
-    pub qwen_api_key: String,
     /// Source language: "auto" or ISO 639-1 code
     pub source_language: String,
     /// Target language: ISO 639-1 code
     pub target_language: String,
+    /// Translation direction: "one_way" | "two_way"
+    pub translation_type: String,
+    /// Two-way mode: language A (e.g. "ja")
+    pub language_a: String,
+    /// Two-way mode: language B (e.g. "vi")
+    pub language_b: String,
+    /// Restrict Soniox to the configured languages instead of auto-detecting
+    pub language_hints_strict: bool,
+    /// Soniox endpoint delay in ms — how long to wait before finalizing a segment
+    pub endpoint_delay: u32,
     /// Audio source: "system" | "microphone" | "both"
     pub audio_source: String,
     /// Overlay opacity: 0.0 - 1.0
@@ -43,112 +64,79 @@ pub struct Settings {
     pub max_lines: u32,
     /// Whether to show original text alongside translation
     pub show_original: bool,
-    /// Translation mode: "soniox" | "local" | "openai"
+    /// Show furigana above Japanese kanji in the transcript
+    pub furigana_enabled: bool,
+    /// Translation mode: "soniox" | "local"
     pub translation_mode: String,
     /// Optional custom context for better transcription
     pub custom_context: Option<CustomContext>,
-    /// ElevenLabs API key for TTS narration
-    pub elevenlabs_api_key: String,
-    /// Whether TTS narration is enabled
-    pub tts_enabled: bool,
-    /// TTS provider: "edge" | "microsoft" | "google-free" | "tiktok" | "google" | "elevenlabs"
-    pub tts_provider: String,
-    /// ElevenLabs voice ID
-    pub tts_voice_id: String,
-    /// TTS speed multiplier (Web Speech)
-    pub tts_speed: f64,
-    /// Edge TTS voice name
-    pub edge_tts_voice: String,
-    /// Edge TTS speed percentage
-    pub edge_tts_speed: i32,
-    /// Auto-read new translations aloud
-    pub tts_auto_read: bool,
-    /// Google Cloud TTS API key
-    pub google_tts_api_key: String,
-    /// Google TTS voice name
-    pub google_tts_voice: String,
-    /// Google TTS speaking rate
-    pub google_tts_speed: f64,
-    /// Microsoft v2 (Edge endpoint, dynamic voice list) selected voice
-    pub microsoft_v2_voice: String,
-    /// Microsoft v2 speed percentage (reuses edge synth)
-    pub microsoft_v2_speed: i32,
-    /// Google Free (android-tts) language token, e.g. "vi-VN" | "en-US"
-    pub google_free_voice: String,
-    /// Optional user Google API key for Google Free. When set, overrides the build-time
-    /// GOOGLE_FREE_TTS_KEY. Empty → fall back to the build-time key (if any).
-    #[serde(default)]
-    pub google_free_api_key: String,
-    /// Google Free client-side playback speed (endpoint has no rate param). 1.0 = normal.
-    #[serde(default = "default_local_tts_speed")]
-    pub google_free_speed: f32,
-    /// TikTok TTS speaker code, e.g. "BV074_streaming"
-    pub tiktok_voice: String,
-    /// TikTok client-side playback speed (endpoint has no rate param). 1.0 = normal.
-    #[serde(default = "default_local_tts_speed")]
-    pub tiktok_speed: f32,
-    /// TikTok sessionid cookie (user-supplied; required by the endpoint)
-    pub tiktok_session_id: String,
-    /// Local offline (Piper/sherpa-onnx) selected voice id, e.g. "vi_VN-vais1000-medium"
-    #[serde(default)]
-    pub local_tts_voice: String,
-    /// Local offline TTS speed (1.0 = normal). Piper length-scale is applied inversely.
-    #[serde(default = "default_local_tts_speed")]
-    pub local_tts_speed: f32,
-    /// Folder where local TTS models are stored; empty = default app-data location.
-    #[serde(default)]
-    pub local_tts_models_dir: String,
-    /// OpenAI Realtime: when true server generates translated audio.
-    /// Default false — speaker → mic feedback loop on shared devices.
-    #[serde(default)]
-    pub openai_audio_output: bool,
+
+    // ── Meeting assistant ──────────────────────────────────────────
+    /// LLM backend: "claude-cli" (uses the signed-in Claude Max/Pro plan via
+    /// the Claude Code CLI, no per-token billing) or "anthropic-api" (API key).
+    pub llm_backend: String,
+    /// Anthropic API key — only used when llm_backend = "anthropic-api".
+    pub anthropic_api_key: String,
+    /// Path to the `claude` executable. Empty = resolve from PATH.
+    pub claude_cli_path: String,
+    /// Model for the rolling summary (cheap, runs often).
+    pub summary_model: String,
+    /// Model for reply suggestions (higher quality, runs on demand).
+    pub reply_model: String,
+    /// Run the rolling summary automatically while recording.
+    pub auto_summary_enabled: bool,
+    /// Minimum seconds between automatic summaries.
+    pub auto_summary_interval_sec: u32,
+    /// Minimum new segments before an automatic summary is worth running.
+    pub auto_summary_min_segments: u32,
+    /// Fallback folder for meeting notes when no project is selected.
+    /// Empty = ~/Documents/meeting-notes
+    pub default_notes_dir: String,
+    /// Saved meeting profiles.
+    pub meeting_profiles: Vec<MeetingProfile>,
+    /// Id of the profile used for the next session. Empty = no project.
+    pub active_profile_id: String,
+    /// Backlog space, e.g. "myspace.backlog.com"
+    pub backlog_space: String,
+    /// Backlog API key
+    pub backlog_api_key: String,
 }
 
 impl Default for Settings {
     fn default() -> Self {
         Self {
             soniox_api_key: String::new(),
-            openai_api_key: String::new(),
-            qwen_api_key: String::new(),
             source_language: "auto".to_string(),
             target_language: "vi".to_string(),
+            translation_type: "one_way".to_string(),
+            language_a: "ja".to_string(),
+            language_b: "vi".to_string(),
+            language_hints_strict: false,
+            endpoint_delay: 3000,
             audio_source: "system".to_string(),
             overlay_opacity: 0.85,
             font_size: 16,
             max_lines: 5,
             show_original: true,
+            furigana_enabled: false,
             translation_mode: "soniox".to_string(),
             custom_context: None,
-            elevenlabs_api_key: String::new(),
-            tts_enabled: false,
-            tts_provider: "edge".to_string(),
-            tts_voice_id: "21m00Tcm4TlvDq8ikWAM".to_string(),
-            tts_speed: 1.2,
-            edge_tts_voice: "vi-VN-HoaiMyNeural".to_string(),
-            edge_tts_speed: 50,
-            tts_auto_read: true,
-            google_tts_api_key: String::new(),
-            google_tts_voice: "vi-VN-Chirp3-HD-Aoede".to_string(),
-            google_tts_speed: 1.0,
-            microsoft_v2_voice: "vi-VN-HoaiMyNeural".to_string(),
-            microsoft_v2_speed: 20,
-            google_free_voice: "vi-VN".to_string(),
-            google_free_api_key: String::new(),
-            google_free_speed: 1.0,
-            tiktok_voice: "BV074_streaming".to_string(),
-            tiktok_speed: 1.0,
-            tiktok_session_id: String::new(),
-            local_tts_voice: "vi_VN-vais1000-medium".to_string(),
-            local_tts_speed: 1.0,
-            local_tts_models_dir: String::new(),
-            openai_audio_output: false,
+
+            llm_backend: "claude-cli".to_string(),
+            anthropic_api_key: String::new(),
+            claude_cli_path: String::new(),
+            summary_model: "claude-haiku-4-5".to_string(),
+            reply_model: "claude-sonnet-5".to_string(),
+            auto_summary_enabled: true,
+            auto_summary_interval_sec: 120,
+            auto_summary_min_segments: 20,
+            default_notes_dir: String::new(),
+            meeting_profiles: Vec::new(),
+            active_profile_id: String::new(),
+            backlog_space: String::new(),
+            backlog_api_key: String::new(),
         }
     }
-}
-
-/// Serde default for `local_tts_speed` (field-level default would give 0.0).
-fn default_local_tts_speed() -> f32 {
-    1.0
 }
 
 /// Get the settings file path
@@ -184,12 +172,22 @@ impl Settings {
                 .map_err(|e| format!("Failed to create config dir: {}", e))?;
         }
 
-        let json = serde_json::to_string_pretty(self)
-            .map_err(|e| format!("Failed to serialize: {}", e))?;
+        let json =
+            serde_json::to_string_pretty(self).map_err(|e| format!("Failed to serialize: {}", e))?;
 
         fs::write(&path, json).map_err(|e| format!("Failed to write settings: {}", e))?;
 
         Ok(())
+    }
+
+    /// The profile selected for the next/current session, if any.
+    pub fn active_profile(&self) -> Option<&MeetingProfile> {
+        if self.active_profile_id.is_empty() {
+            return None;
+        }
+        self.meeting_profiles
+            .iter()
+            .find(|p| p.id == self.active_profile_id)
     }
 }
 
