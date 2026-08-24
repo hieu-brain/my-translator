@@ -1,0 +1,176 @@
+<!doctype html>
+<html lang="vi">
+  <head>
+    <meta charset="utf-8" />
+    <title>Teams Captions Bridge — Cài đặt</title>
+    <style>
+      :root { color-scheme: light dark; }
+      body {
+        font: 14px/1.6 -apple-system, "Segoe UI", sans-serif;
+        max-width: 640px; margin: 40px auto; padding: 0 24px 60px;
+      }
+      h1 { font-size: 20px; margin-bottom: 4px; }
+      h2 { font-size: 14px; margin: 32px 0 0; padding-top: 20px; border-top: 1px solid rgba(128,128,128,.25); }
+      .sub { opacity: .6; margin-top: 0; font-size: 13px; }
+      label { display: block; margin-top: 18px; font-weight: 600; font-size: 13px; }
+      .hint { font-weight: 400; opacity: .6; font-size: 12px; margin-top: 2px; }
+      input, select, textarea {
+        width: 100%; padding: 8px 10px; margin-top: 6px;
+        border: 1px solid rgba(128,128,128,.4); border-radius: 6px;
+        font: inherit; background: transparent; color: inherit;
+      }
+      textarea { min-height: 80px; resize: vertical; font-family: ui-monospace, monospace; font-size: 12px; }
+      .two { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+      .row { display: flex; gap: 12px; align-items: center; margin-top: 28px; }
+      button {
+        padding: 8px 18px; border-radius: 6px; border: none;
+        background: #4f46e5; color: #fff; font: inherit; font-weight: 600; cursor: pointer;
+      }
+      button:hover { background: #4338ca; }
+      #status { font-size: 13px; opacity: 0; transition: opacity .2s; }
+      #status.show { opacity: .75; }
+      .note {
+        margin-top: 24px; padding: 12px 14px; font-size: 12.5px; line-height: 1.6;
+        border-left: 3px solid rgba(128,128,128,.35); opacity: .8;
+      }
+      .hidden { display: none; }
+      #cost { font-variant-numeric: tabular-nums; }
+    </style>
+  </head>
+  <body>
+    <h1>Teams Captions Bridge</h1>
+    <p class="sub">Đọc live captions của Teams web, dịch và xuất transcript.</p>
+
+    <h2>Hành vi</h2>
+
+    <label>
+      <input id="autoOpen" type="checkbox" style="width:auto;margin-right:8px" />
+      Tự mở panel khi vào Teams
+    </label>
+    <p class="hint">Mặc định tắt. Bấm icon extension trên thanh công cụ để bật/tắt panel.
+      Panel đóng = không đọc caption, không chạy ngầm.</p>
+
+    <label>
+      <input id="translateByDefault" type="checkbox" style="width:auto;margin-right:8px" />
+      Bật dịch sẵn khi mở panel
+    </label>
+    <p class="hint">Mặc định tắt để không tốn tiền ngoài ý muốn. Bấm nút <b>VI</b> trên panel
+      khi cần dịch — câu đã ghi trước đó sẽ được dịch bù.</p>
+
+    <h2>Engine dịch</h2>
+
+    <label>
+      Dùng engine
+      <select id="engine">
+        <option value="anthropic">Anthropic Claude — chất lượng cao nhất</option>
+        <option value="gemini">Google Gemini — có free tier</option>
+      </select>
+    </label>
+
+    <div id="pane-anthropic">
+      <label>
+        Anthropic API key
+        <div class="hint">Lưu trong máy (storage.local), không đồng bộ lên tài khoản Google.</div>
+        <input id="apiKey" type="password" placeholder="sk-ant-..." autocomplete="off" />
+      </label>
+      <label>
+        Model
+        <div class="hint">Haiku 4.5 là lựa chọn rẻ nhất mà vẫn tốt cho dịch phụ đề. Opus 5 chỉ nên dùng khi cần độ chính xác tối đa.</div>
+        <select id="model">
+          <option value="claude-haiku-4-5">Claude Haiku 4.5 — rẻ &amp; nhanh (mặc định)</option>
+          <option value="claude-sonnet-5">Claude Sonnet 5 — cân bằng</option>
+          <option value="claude-opus-5">Claude Opus 5 — tốt nhất, đắt nhất</option>
+        </select>
+      </label>
+    </div>
+
+    <div id="pane-gemini" class="hidden">
+      <label>
+        Google API key
+        <div class="hint">Lấy tại aistudio.google.com → Get API key. Free tier có giới hạn ~15 request/phút — gom lô bên dưới giúp nằm gọn trong hạn mức.</div>
+        <input id="geminiKey" type="password" placeholder="AIza..." autocomplete="off" />
+      </label>
+      <label>
+        Model
+        <div class="hint">Sửa tên nếu Google đổi. Sai tên sẽ báo lỗi ngay trên panel.</div>
+        <input id="geminiModel" placeholder="gemini-2.5-flash" />
+      </label>
+    </div>
+
+    <h2>Ngôn ngữ &amp; thuật ngữ</h2>
+
+    <div class="two">
+      <label>
+        Dịch từ
+        <input id="sourceLang" placeholder="Tiếng Nhật" />
+      </label>
+      <label>
+        Dịch sang
+        <input id="targetLang" placeholder="Tiếng Việt" />
+      </label>
+    </div>
+
+    <label>
+      Thuật ngữ riêng
+      <div class="hint">Mỗi dòng một cặp. Áp dụng cho mọi engine.</div>
+      <textarea id="glossary" placeholder="ラボチーム = team Lab&#10;フィジビリティ = feasibility (giữ nguyên tiếng Anh)"></textarea>
+    </label>
+
+    <h2>Gom lô — đây là chỗ quyết định chi phí</h2>
+
+    <div class="two">
+      <label>
+        Số câu mỗi lô
+        <div class="hint">Càng lớn càng rẻ, càng trễ.</div>
+        <input id="batchSize" type="number" min="1" max="20" />
+      </label>
+      <label>
+        Chờ tối đa (ms)
+        <div class="hint">Gửi lô dù chưa đủ câu.</div>
+        <input id="maxWaitMs" type="number" min="1000" max="60000" step="500" />
+      </label>
+    </div>
+
+    <p class="hint" id="cost"></p>
+
+    <h2>Cầu nối sang app My Translator</h2>
+    <p class="hint">
+      Đẩy caption sang app để dùng meeting assistant (tổng hợp cuộn, gợi ý trả lời,
+      meeting note) qua <b>gói Claude Max — không tốn thêm tiền</b>. Phần dịch realtime
+      vẫn do extension lo. Bỏ trống nếu chỉ dùng extension độc lập.
+    </p>
+
+    <label>
+      <input id="bridgeEnabled" type="checkbox" style="width:auto;margin-right:8px" />
+      Bật cầu nối
+    </label>
+
+    <div class="two">
+      <label>
+        Cổng
+        <div class="hint">Phải khớp với Settings trong app.</div>
+        <input id="bridgePort" type="number" min="1024" max="65535" />
+      </label>
+      <label>
+        Token
+        <div class="hint">Copy từ Settings của app.</div>
+        <input id="bridgeToken" type="password" placeholder="32 ký tự hex" autocomplete="off" />
+      </label>
+    </div>
+
+    <p class="hint" id="bridgeStatus"></p>
+
+    <div class="row">
+      <button id="save">Lưu</button>
+      <span id="status"></span>
+    </div>
+
+    <div class="note">
+      Cần bật <b>live captions</b> trong Teams: <b>More → Language and speech → Turn on live captions</b>,
+      và nhớ chọn đúng <b>spoken language</b> — nếu để English mà mọi người nói tiếng Nhật thì
+      caption sẽ ra tiếng Anh vô nghĩa và extension không sửa được.
+    </div>
+
+    <script src="options.js"></script>
+  </body>
+</html>

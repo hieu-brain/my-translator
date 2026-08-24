@@ -1,0 +1,40 @@
+{
+  "manifest_version": 3,
+  "name": "Teams Captions Bridge",
+  "version": "0.1.0",
+  "description": "Đọc live captions của Microsoft Teams (web), dịch sang tiếng Việt và xuất transcript ra file.",
+  "permissions": ["storage"],
+  "host_permissions": [
+    "https://teams.cloud.microsoft/*",
+    "https://teams.microsoft.com/*",
+    "https://api.anthropic.com/*",
+    "https://generativelanguage.googleapis.com/*"
+  ],
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://teams.cloud.microsoft/*",
+        "https://teams.microsoft.com/*"
+      ],
+      "js": [
+        "src/selectors.js",
+        "src/stabilizer.js",
+        "src/store.js",
+        "src/batcher.js",
+        "src/exporter.js",
+        "src/panel.js",
+        "src/content.js"
+      ],
+      "run_at": "document_idle",
+      "all_frames": false
+    }
+  ],
+  "options_page": "options.html",
+  "action": {
+    "default_title": "Teams Captions Bridge"
+  }
+}
