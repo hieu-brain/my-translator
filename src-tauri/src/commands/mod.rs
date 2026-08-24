@@ -1,4 +1,5 @@
 pub mod audio;
+pub mod caption_bridge;
 pub mod claude_cli;
 pub mod http_client;
 pub mod local_pipeline;

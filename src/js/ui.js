@@ -113,6 +113,50 @@ export class TranscriptUI {
     }
 
     /**
+     * Like `addOriginal`, but tagged with a caller-supplied key so the
+     * translation can be attached later by key instead of by position.
+     *
+     * Nguồn caption ngoài (extension Teams) dịch theo lô, bản dịch về sau vài
+     * giây và có thể lệch thứ tự — ghép theo vị trí như Soniox sẽ gán nhầm câu.
+     */
+    addKeyedOriginal(key, text, speaker = null, language = null) {
+        if (!text || !text.trim()) return;
+        if (this.segments.some((s) => s.extKey === key)) return; // gửi lại, bỏ qua
+
+        const seg = {
+            id: `seg-${++this._segCounter}`,
+            extKey: key,
+            original: text,
+            translation: null,
+            status: 'original',
+            speaker: speaker || null,
+            language: language || null,
+            confidence: null,
+            createdAt: Date.now(),
+        };
+        this.segments.push(seg);
+        this.sessionLog.push({ ...seg });
+
+        if (speaker) this.currentSpeaker = speaker;
+        if (language) this.currentLanguage = language;
+        this._cleanupStaleOriginals();
+        this._render();
+    }
+
+    /** Attach a translation to the segment carrying `key`. */
+    setKeyedTranslation(key, text) {
+        if (!text || !text.trim()) return;
+        for (const list of [this.segments, this.sessionLog]) {
+            const seg = list.find((s) => s.extKey === key);
+            if (seg) {
+                seg.translation = text;
+                seg.status = 'translated';
+            }
+        }
+        this._render();
+    }
+
+    /**
      * Attach a translation to the oldest untranslated segment. Soniox emits the
      * translation as a separate token stream, so the pairing is positional.
      */
@@ -334,7 +378,11 @@ export class TranscriptUI {
         let lastSpeaker = null;
 
         for (const seg of this.segments) {
-            if (seg.status === 'original' && !seg.translation) {
+            // Câu có extKey đến từ nguồn ngoài (extension Teams): bản dịch về
+            // sau vài giây vì gom lô, và có thể không bao giờ về nếu người dùng
+            // tắt dịch. Giữ lại "một nhịp" ở đây nghĩa là không hiện gì cả —
+            // vẽ luôn bản gốc, bản dịch tới thì thay.
+            if (!seg.extKey && seg.status === 'original' && !seg.translation) {
                 // Source captured, translation still in flight — showing the raw
                 // source as the big line then swapping it for the translation
                 // reads as flicker, so hold the block back one beat.
@@ -511,8 +559,10 @@ export class TranscriptUI {
     _cleanupStaleOriginals() {
         const STALE_MS = 15000;
         const now = Date.now();
+        // Câu có extKey ghép theo khoá, không theo vị trí — bản dịch đến muộn
+        // không làm lệch gì cả, nên đừng "chữa cháy" bằng cách gán bản gốc.
         const stale = this.segments.filter(
-            (s) => s.status === 'original' && now - s.createdAt > STALE_MS
+            (s) => !s.extKey && s.status === 'original' && now - s.createdAt > STALE_MS
         );
         for (const s of stale) {
             s.status = 'translated';

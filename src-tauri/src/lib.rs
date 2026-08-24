@@ -5,6 +5,7 @@ mod settings;
 use audio::microphone::MicCapture;
 use audio::SystemAudioCapture;
 use commands::audio::AudioState;
+use commands::caption_bridge::CaptionBridgeState;
 use commands::local_pipeline::LocalPipelineState;
 use settings::{Settings, SettingsState};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -86,6 +87,9 @@ pub fn run() {
         .manage(LocalPipelineState {
             process: Mutex::new(None),
         })
+        .manage(CaptionBridgeState {
+            running: Mutex::new(None),
+        })
         .invoke_handler(tauri::generate_handler![
             commands::settings::get_settings,
             commands::settings::save_settings,
@@ -110,6 +114,8 @@ pub fn run() {
             commands::local_pipeline::stop_local_pipeline,
             commands::local_pipeline::check_mlx_setup,
             commands::local_pipeline::run_mlx_setup,
+            commands::caption_bridge::start_caption_bridge,
+            commands::caption_bridge::stop_caption_bridge,
             commands::claude_cli::check_claude_cli,
             commands::claude_cli::claude_cli_prompt,
             commands::project_context::read_project_context,

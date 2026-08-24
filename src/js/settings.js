@@ -37,6 +37,10 @@ const DEFAULT_SETTINGS = {
   active_profile_id: '',
   backlog_space: '',
   backlog_api_key: '',
+
+  // Caption bridge (Chrome extension đọc live captions của Teams web)
+  caption_bridge_port: 8477,
+  caption_bridge_token: '',
 };
 
 class SettingsManager {

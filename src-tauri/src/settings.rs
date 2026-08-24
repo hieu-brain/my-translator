@@ -100,6 +100,12 @@ pub struct Settings {
     pub backlog_space: String,
     /// Backlog API key
     pub backlog_api_key: String,
+
+    // ── Caption bridge (Chrome extension → app) ────────────────────
+    /// Cổng WebSocket local mà extension kết nối vào.
+    pub caption_bridge_port: u16,
+    /// Token dùng chung với extension. Sinh tự động lần đầu.
+    pub caption_bridge_token: String,
 }
 
 impl Default for Settings {
@@ -135,8 +141,23 @@ impl Default for Settings {
             active_profile_id: String::new(),
             backlog_space: String::new(),
             backlog_api_key: String::new(),
+
+            caption_bridge_port: 8477,
+            // Để rỗng ở đây: `load()` mới sinh token rồi ghi xuống đĩa. Nếu sinh
+            // trong Default thì mỗi lần khởi động app lại ra token khác (serde
+            // dùng Default để bù field thiếu), và extension sẽ mất kết nối.
+            caption_bridge_token: String::new(),
         }
     }
+}
+
+/// Token ngẫu nhiên 32 hex cho caption bridge. Bất kỳ trang web nào cũng
+/// connect được vào 127.0.0.1, nên đây là lớp chặn tối thiểu.
+fn random_token() -> String {
+    use rand::Rng;
+    let mut bytes = [0u8; 16];
+    rand::thread_rng().fill(&mut bytes);
+    hex::encode(bytes)
 }
 
 /// Get the settings file path
@@ -152,14 +173,23 @@ impl Settings {
     /// Load settings from disk, or return defaults
     pub fn load() -> Self {
         let path = settings_path();
-        if path.exists() {
+        let mut settings = if path.exists() {
             match fs::read_to_string(&path) {
                 Ok(content) => serde_json::from_str(&content).unwrap_or_default(),
                 Err(_) => Self::default(),
             }
         } else {
             Self::default()
+        };
+
+        // Sinh token caption bridge một lần duy nhất và ghi xuống đĩa, để token
+        // giữ nguyên qua các lần khởi động.
+        if settings.caption_bridge_token.is_empty() {
+            settings.caption_bridge_token = random_token();
+            let _ = settings.save();
         }
+
+        settings
     }
 
     /// Save settings to disk

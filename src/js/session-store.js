@@ -83,13 +83,17 @@ export class SessionStore {
         if (!this.currentChunk) {
             this.beginChunk();
         }
-        this.currentChunk.segments.push({
+        const segment = {
             ts: this._timeStr(new Date()),
             src: src || '',
             tgt: tgt || '',
-        });
+        };
+        this.currentChunk.segments.push(segment);
         this._mutations++;
         this._scheduleAutosave();
+        // Trả về đối tượng vừa thêm để nguồn caption ngoài (extension Teams) điền
+        // bản dịch vào sau — bản dịch về sau vài giây vì gom lô.
+        return segment;
     }
 
     endChunk() {

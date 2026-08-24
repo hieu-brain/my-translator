@@ -8,6 +8,7 @@
 
 import { settingsManager } from './settings.js';
 import { TranscriptUI } from './ui.js';
+import { captionBridge } from './caption-bridge.js';
 import { sonioxClient } from './soniox.js';
 import { sessionStore } from './session-store.js';
 import { MeetingAssistant } from './meeting-assistant.js';
@@ -56,6 +57,7 @@ class App {
         this.localPipelineReady = false;
 
         /** Soniox emits source and translation as separate finals — pair FIFO. */
+        this._teamsSegments = new Map();
         this._sonioxOriginalQueue = [];
         this._currentViewedSession = null;
     }
@@ -239,6 +241,17 @@ class App {
         toggleReveal('btn-toggle-key', 'input-api-key');
         toggleReveal('btn-toggle-anthropic-key', 'input-anthropic-key');
         toggleReveal('btn-toggle-backlog-key', 'input-backlog-key');
+        toggleReveal('btn-toggle-bridge-token', 'input-bridge-token');
+        document.getElementById('btn-copy-bridge-token')?.addEventListener('click', async () => {
+            const token = document.getElementById('input-bridge-token').value.trim();
+            if (!token) return;
+            try {
+                await navigator.clipboard.writeText(token);
+                this._showToast('Đã copy token — dán vào Cài đặt của extension');
+            } catch {
+                this._showToast('Không copy được, chọn thủ công', 'error');
+            }
+        });
 
         document.getElementById('btn-test-soniox').addEventListener('click', () => this._testSoniox());
         document.getElementById('btn-test-claude-cli').addEventListener('click', () => this._testClaudeCli());
@@ -321,6 +334,32 @@ class App {
         sonioxClient.onStatusChange = (status) => this._updateStatus(status);
         sonioxClient.onError = (error) => this._showToast(String(error), 'error');
         sonioxClient.onConfidence = (c) => this.transcriptUI.setConfidence(c);
+
+        // ── caption bridge (Teams web qua Chrome extension) ──
+        captionBridge.onCaption = (c) => {
+            const key = String(c.id);
+            if (c.isNew) {
+                if (c.mri && c.name) this.transcriptUI.setSpeakerName(c.mri, c.name);
+                this.transcriptUI.clearProvisional();
+                this.transcriptUI.removeStatusMessage();
+                this.transcriptUI.addKeyedOriginal(key, c.ja, c.mri || null, 'ja');
+                // Ghi vào session NGAY, không chờ bản dịch: bản dịch về sau vài
+                // giây vì gom lô, và có thể không bao giờ về nếu tắt dịch ở
+                // extension. Chờ nó nghĩa là meeting assistant không thấy gì.
+                this._teamsSegments.set(key, sessionStore.addSegment(c.ja, c.vi || ''));
+            }
+            if (c.vi) {
+                this.transcriptUI.setKeyedTranslation(key, c.vi);
+                const seg = this._teamsSegments.get(key);
+                if (seg) seg.tgt = c.vi;
+            }
+        };
+        captionBridge.onProvisional = (text, name) => {
+            if (text) this.transcriptUI.setProvisional(text, null, 'ja');
+            else this.transcriptUI.clearProvisional();
+        };
+        captionBridge.onStatusChange = (status) => this._updateStatus(status);
+        captionBridge.onError = (message) => this._showToast(String(message), 'error');
     }
 
     // ─── Meeting assistant ─────────────────────────────────
@@ -494,6 +533,11 @@ class App {
             this._showView('settings');
             return;
         }
+        if (this.translationMode === 'teams-web' && !settings.caption_bridge_token) {
+            this._showToast('Chưa có token caption bridge. Mở Cài đặt.', 'error');
+            this._showView('settings');
+            return;
+        }
 
         this.isRunning = true;
         this._updateStartButton();
@@ -524,7 +568,29 @@ class App {
         else this.transcriptUI.clearProvisional();
 
         if (this.translationMode === 'local') await this._startLocalMode(settings);
+        else if (this.translationMode === 'teams-web') await this._startTeamsBridge(settings);
         else await this._startSonioxMode(settings);
+    }
+
+    /**
+     * Nguồn caption là Chrome extension đọc live captions của Teams web, không
+     * phải micro. Không gọi start_capture — đường âm thanh hoàn toàn không dùng.
+     */
+    async _startTeamsBridge(settings) {
+        this._updateStatus('connecting');
+        try {
+            await captionBridge.start({
+                port: settings.caption_bridge_port || 8477,
+                token: settings.caption_bridge_token,
+            });
+            this.transcriptUI.showStatusMessage(
+                'Đang chờ extension nối vào… (mở Teams web và bật live captions)'
+            );
+        } catch (err) {
+            console.error('start_caption_bridge failed:', err);
+            this._showToast(`Caption bridge: ${err}`, 'error');
+            await this.pause();
+        }
     }
 
     async _startSonioxMode(settings) {
@@ -647,9 +713,15 @@ class App {
         this._updateStartButton();
         this.assistant.stop();
 
-        try { await invoke('stop_capture'); } catch (err) { console.error(err); }
+        if (this.translationMode !== 'teams-web') {
+            try { await invoke('stop_capture'); } catch (err) { console.error(err); }
+        }
 
-        if (this.translationMode === 'local') {
+        if (this.translationMode === 'teams-web') {
+            await captionBridge.stop();
+            this.transcriptUI.removeStatusMessage();
+            this._updateStatus('disconnected');
+        } else if (this.translationMode === 'local') {
             try { await invoke('stop_local_pipeline'); } catch (err) { console.error(err); }
             this.localPipelineReady = false;
             this.transcriptUI.removeStatusMessage();
@@ -660,6 +732,11 @@ class App {
 
         this.transcriptUI.clearProvisional();
         this._sonioxOriginalQueue.length = 0;
+
+        // Câu chưa kịp có bản dịch: lấy bản gốc làm bản dịch để meeting note và
+        // export không có ô trống.
+        for (const seg of this._teamsSegments.values()) if (!seg.tgt) seg.tgt = seg.src;
+        this._teamsSegments.clear();
 
         sessionStore.endChunk();
         const result = await sessionStore.persist();
@@ -799,7 +876,7 @@ class App {
             ? `${(s.language_a || 'ja').toUpperCase()} ⇄ ${(s.language_b || 'vi').toUpperCase()}`
             : `${(s.source_language || 'auto').toUpperCase()} → ${(s.target_language || 'vi').toUpperCase()}`;
         document.getElementById('card-translation-sub').textContent =
-            `${s.translation_mode === 'local' ? 'Local MLX' : 'Soniox'} · ${pair}`;
+            `${{ local: 'Local MLX', 'teams-web': 'Teams captions' }[s.translation_mode] || 'Soniox'} · ${pair}`;
         document.getElementById('card-display-sub').textContent =
             `Cỡ chữ ${s.font_size || 16}px · ${s.furigana_enabled ? 'furigana bật' : 'furigana tắt'}`;
 
@@ -812,6 +889,8 @@ class App {
     _populateSettingsForm(s) {
         document.getElementById('input-api-key').value = s.soniox_api_key || '';
         document.getElementById('select-translation-mode').value = s.translation_mode || 'soniox';
+        document.getElementById('input-bridge-port').value = s.caption_bridge_port || 8477;
+        document.getElementById('input-bridge-token').value = s.caption_bridge_token || '';
         document.getElementById('select-translation-type').value = s.translation_type || 'one_way';
         document.getElementById('select-source-lang').value = s.source_language || 'auto';
         document.getElementById('select-target-lang').value = s.target_language || 'vi';
@@ -880,6 +959,8 @@ class App {
         const settings = {
             soniox_api_key: document.getElementById('input-api-key').value.trim(),
             translation_mode: document.getElementById('select-translation-mode').value,
+            caption_bridge_port: parseInt(document.getElementById('input-bridge-port').value, 10) || 8477,
+            caption_bridge_token: document.getElementById('input-bridge-token').value.trim(),
             translation_type: document.getElementById('select-translation-type').value,
             source_language: document.getElementById('select-source-lang').value,
             target_language: document.getElementById('select-target-lang').value,
@@ -1093,9 +1174,11 @@ class App {
     _updateModeUI(mode) {
         document.getElementById('hint-mode-soniox').style.display = mode === 'soniox' ? '' : 'none';
         document.getElementById('hint-mode-local').style.display = mode === 'local' ? '' : 'none';
+        document.getElementById('hint-mode-teams').style.display = mode === 'teams-web' ? '' : 'none';
         document.getElementById('section-api-key').style.display = mode === 'soniox' ? '' : 'none';
         document.getElementById('section-soniox-context').style.display = mode === 'soniox' ? '' : 'none';
         document.getElementById('section-endpoint-delay').style.display = mode === 'soniox' ? '' : 'none';
+        document.getElementById('section-caption-bridge').style.display = mode === 'teams-web' ? '' : 'none';
     }
 
     _updateTranslationTypeUI(type) {

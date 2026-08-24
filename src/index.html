@@ -196,10 +196,23 @@
           <select id="select-translation-mode">
             <option value="soniox">Soniox</option>
             <option value="local">Local MLX</option>
+            <option value="teams-web">Teams captions</option>
                           </select>
           <p class="hint" id="hint-mode-soniox">Cloud · 70+ ngôn ngữ · ~$0.12/hr</p>
           <p class="hint" id="hint-mode-local" style="display:none">Offline · miễn phí · trễ ~3–4s</p>
-          
+          <p class="hint" id="hint-mode-teams" style="display:none">Không dùng micro · caption lấy từ Chrome extension trên Teams web</p>
+        </div>
+        <div class="settings-section" id="section-caption-bridge" style="display:none">
+          <span class="field-label">Caption bridge</span>
+          <p class="hint">Extension đọc live captions của Teams web và đẩy sang đây. App chỉ nghe ở 127.0.0.1 — dán đúng cổng và token này vào Cài đặt của extension.</p>
+          <div class="input-group">
+            <input type="number" id="input-bridge-port" min="1024" max="65535" placeholder="8477" />
+          </div>
+          <div class="input-group">
+            <input type="password" id="input-bridge-token" placeholder="Token" autocomplete="off" />
+            <button id="btn-toggle-bridge-token" class="icon-btn small" title="Hiện/ẩn"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg></button>
+            <button id="btn-copy-bridge-token" class="btn-secondary small" title="Copy token">Copy</button>
+          </div>
         </div>
         <div class="settings-section" id="section-api-key">
           <span class="field-label">Soniox API Key <span id="key-status-soniox" class="key-status"></span></span>

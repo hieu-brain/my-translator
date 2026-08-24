@@ -12,7 +12,7 @@ Fork of upstream `phuc-nt/my-translator` v0.9.1, with TTS, read mode, the OpenAI
 | Backend | Rust + Tauri 2 |
 | System audio | ScreenCaptureKit (macOS 13+) |
 | Microphone | CPAL 0.15 |
-| STT/Translation | Soniox API v4 (WebSocket) · Local MLX (offline, Apple Silicon) |
+| STT/Translation | Soniox API v4 (WebSocket) · Local MLX (offline, Apple Silicon) · Teams live captions (Chrome extension) |
 | Meeting assistant | Claude — via the `claude` CLI (subscription) or the Anthropic API (key) |
 
 ## Commands
@@ -71,6 +71,7 @@ invoke('read_note_files', { paths })
 invoke('meeting_notes_dir', { projectPath, defaultNotesDir })
 invoke('save_meeting_note', { projectPath, defaultNotesDir, datePrefix, title, content })
 invoke('open_path_in_finder', { path })
+invoke('start_caption_bridge', { port, token, channel }) / invoke('stop_caption_bridge')
 ```
 
 ## Data Flow
@@ -121,6 +122,19 @@ Audio HW → Rust capture (48kHz stereo) → resample 16kHz mono PCM s16le
 | `⌘E` | Expand / shrink window |
 | `⌘M` | Minimize |
 | `Esc` | Back / close sheet |
+
+## Caption bridge (Teams web)
+`extension/teams-captions/` là Chrome extension đọc live captions từ DOM của
+Teams web, dịch theo lô, và đẩy sang app qua WebSocket. Chọn engine
+`teams-web` trong Settings để dùng — chế độ này **không đụng tới đường âm
+thanh**, `start_capture` không được gọi.
+- Extension lo phần dịch realtime (API, gom lô → rẻ). App lo phần tổng hợp /
+  meeting note qua `claude` CLI (gói Max, $0).
+- Bản dịch về sau vài giây và có thể lệch thứ tự → dùng
+  `TranscriptUI.addKeyedOriginal()` / `setKeyedTranslation()` ghép theo khoá,
+  **không** dùng `addTranslation()` (ghép theo vị trí, sẽ gán sai câu).
+- Bảo mật: server chỉ bind 127.0.0.1, bắt buộc token khớp + `Origin` là
+  `chrome-extension://`.
 
 ## Constraints & Gotchas
 - **macOS only** — ScreenCaptureKit needs macOS 13+; Local MLX needs Apple Silicon.

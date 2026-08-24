@@ -132,6 +132,8 @@ JA: 来週は少し厳しいので、あと2日いただけますか？`;
                     case 'open_transcript_dir':
                     case 'start_capture':
                     case 'stop_capture':
+                    case 'start_caption_bridge':
+                    case 'stop_caption_bridge':
                     case 'stop_local_pipeline':
                     case 'send_audio_to_pipeline':
                     case 'exit_app':
