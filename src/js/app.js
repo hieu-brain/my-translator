@@ -755,9 +755,15 @@ class App {
      * the session file, and reset identity so the next Start opens a new one.
      */
     async stopSession() {
+        // Hỏi TRƯỚC khi pause: bấm nhầm ⌘Enter giữa cuộc họp mà capture đã
+        // dừng rồi mới hỏi thì khoảng hỏi đó là một lỗ hổng transcript.
+        // Chỉ hỏi khi có nội dung — phiên trống thì dừng luôn khỏi phiền.
+        const hasContent = !sessionStore.isEmpty() || this.transcriptUI.hasContent();
+        if (hasContent && !(await this._confirmEndSession())) return;
+
         if (this.isRunning) await this.pause();
 
-        if (sessionStore.isEmpty() && !this.transcriptUI.hasContent()) {
+        if (!hasContent) {
             this._showToast('Chưa có nội dung để lưu');
             return;
         }
@@ -781,6 +787,30 @@ class App {
             sourceLang: settings.source_language || 'auto',
             targetLang: settings.target_language || 'vi',
         });
+    }
+
+    /**
+     * true = kết thúc và lưu. Dùng dialog gốc của Tauri; dev:web (:3111)
+     * không có plugin dialog nên rơi về window.confirm.
+     */
+    async _confirmEndSession() {
+        const message =
+            'Lưu transcript và meeting note, sau đó đóng phiên này.\n' +
+            'Lần Start tới sẽ bắt đầu một phiên mới.';
+        try {
+            const ask = window.__TAURI__?.dialog?.ask;
+            if (ask) {
+                return await ask(message, {
+                    title: 'Kết thúc cuộc họp?',
+                    kind: 'info',
+                    okLabel: 'Kết thúc & lưu',
+                    cancelLabel: 'Họp tiếp',
+                });
+            }
+        } catch (err) {
+            console.warn('dialog.ask failed, falling back to confirm():', err);
+        }
+        return window.confirm(`Kết thúc cuộc họp?\n\n${message}`);
     }
 
     // ─── Meeting note ──────────────────────────────────────
