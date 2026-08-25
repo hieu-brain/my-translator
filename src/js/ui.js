@@ -34,6 +34,10 @@ export class TranscriptUI {
         // chờ bị chặn trần. sessionLog không bị đụng — export vẫn đủ câu.
         this.staleMs = 10000;
         this.maxPendingOriginals = 3;
+        // Bản dịch được nhận là "của" câu gốc mới nhất chỉ khi câu đó còn đủ
+        // tươi. Đo trên log token thật (2 cuộc họp 25/08, 728 bản dịch):
+        // p99 = 0.15s — ngưỡng 8s là rộng gấp ~50 lần thực tế.
+        this.pairFreshMs = 8000;
 
         this.segments = [];
         this.sessionLog = [];
@@ -164,23 +168,35 @@ export class TranscriptUI {
     }
 
     /**
-     * Attach a translation to the oldest untranslated segment. Soniox emits the
-     * translation as a separate token stream, so the pairing is positional.
+     * Attach a translation to the NEWEST untranslated segment. Soniox emits
+     * translations as a separate token stream with no pairing id, but each
+     * translation lands within ~0.2s of its own original — recency IS the key.
      */
     addTranslation(text) {
         if (!text || !text.trim()) return null;
 
-        // extKey segments pair by key (setKeyedTranslation) — positional
-        // pairing must never consume them.
-        const pending = this.segments.find(
+        // Ghép với câu gốc MỚI NHẤT chưa dịch, không phải cũ nhất (FIFO).
+        // Đo trên log token thật: bản dịch Soniox đến trong ~0.2s sau câu gốc
+        // của nó, luôn trước câu gốc kế tiếp — nên chủ nhân của bản dịch là
+        // câu mới nhất. FIFO khiến MỘT bản dịch rơi làm mọi cặp sau lệch một
+        // nhịp vĩnh viễn (ghép đúng chỉ 7–23% trên hai cuộc họp 25/08; ghép
+        // theo câu mới nhất: 100%). extKey ghép theo khoá — không đụng.
+        const pending = this.segments.filter(
             (s) => !s.extKey && s.status === 'original'
         );
-        if (pending) {
-            pending.translation = text;
-            pending.status = 'translated';
-            const logged = this.sessionLog.find(
-                (s) => s.id === pending.id
-            );
+        const target = pending[pending.length - 1];
+        if (target && Date.now() - target.createdAt <= this.pairFreshMs) {
+            // Câu cũ hơn còn treo = bản dịch của chúng đã rơi. Bỏ khỏi màn
+            // hình NGAY — chờ thêm chỉ mở cửa cho ghép nhầm; sessionLog vẫn
+            // giữ nguyên bản gốc cho export.
+            for (const missed of pending.slice(0, -1)) {
+                const idx = this.segments.indexOf(missed);
+                if (idx !== -1) this.segments.splice(idx, 1);
+            }
+
+            target.translation = text;
+            target.status = 'translated';
+            const logged = this.sessionLog.find((s) => s.id === target.id);
             if (logged) {
                 logged.translation = text;
                 logged.status = 'translated';
@@ -188,11 +204,12 @@ export class TranscriptUI {
             this._render();
             // Trả về cặp vừa ghép: app dùng nó để ghi sessionStore, nên log
             // và màn hình luôn thống nhất một nguồn ghép duy nhất.
-            return pending;
+            return target;
         }
 
-        // Translation with no pending source (engine restarted mid-stream):
-        // keep it rather than dropping the user's content on the floor.
+        // Không có câu gốc đủ tươi (câu gốc bị Soniox nuốt, hoặc engine
+        // restart giữa chừng): giữ bản dịch thành block riêng thay vì vứt bỏ
+        // — và nhất quyết không với tay về câu gốc cũ, đó chính là nguồn lệch.
         const seg = {
             id: `seg-${++this._segCounter}`,
             original: null,

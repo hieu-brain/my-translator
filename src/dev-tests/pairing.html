@@ -52,20 +52,46 @@ function fresh() {
     check('S1: addTranslation trả về segment cho sessionStore', !!s1 && s1.translation === 'Chào anh');
 }
 
-// ── S2: rơi MỘT bản dịch — lệch đúng 1 cặp rồi tự lành, không có tiếng Nhật giả ──
+// ── S2: rơi MỘT bản dịch — KHÔNG một cặp nào lệch (tái hiện ảnh họp 25/08) ──
 {
     const ui = fresh();
     ui.addOriginal('文一', 1, 'ja');          // bản dịch của câu này không bao giờ đến
     ui.addOriginal('文二', 1, 'ja');
-    const t2 = ui.addTranslation('Câu hai');  // ghép nhầm vào 文一 — hệ quả cố hữu của ghép vị trí
-    check('S2: cặp lệch bị giới hạn ở đúng 1 (ghép vào 文一)', t2?.original === '文一', `ghép vào: ${t2?.original}`);
-    await sleep(400);                          // vượt cửa sổ staleMs
-    ui.addOriginal('文三', 1, 'ja');           // addOriginal kích hoạt cleanup → 文二 quá hạn bị bỏ
+    const t2 = ui.addTranslation('Câu hai');  // recency: ghép đúng 文二, không cướp 文一
+    check('S2: bản dịch ghép ĐÚNG câu mới nhất dù câu trước mất bản dịch',
+        t2?.original === '文二', `ghép vào: ${t2?.original}`);
+    check('S2: câu mất bản dịch bị bỏ khỏi màn hình NGAY (không chờ 10s)',
+        !ui.segments.some((s) => s.original === '文一'));
+    check('S2: sessionLog vẫn giữ câu bị bỏ cho export',
+        ui.sessionLog.some((s) => s.original === '文一'));
+    ui.addOriginal('文三', 1, 'ja');
     const t3 = ui.addTranslation('Câu ba');
-    check('S2: sau cửa sổ quá hạn, cặp tiếp theo ĐÚNG trở lại — hết drift vĩnh viễn',
-        t3?.original === '文三', `ghép vào: ${t3?.original}`);
+    check('S2: chuỗi tiếp theo ghép đúng — không drift', t3?.original === '文三');
     check('S2: không câu tiếng Nhật nào bị thăng cấp thành "bản dịch" (lỗi ngập ngừng cũ)',
         !ui.segments.some((s) => s.original && s.translation === s.original));
+}
+
+// ── S2b: rơi MỘT câu gốc (ví dụ 多分そのバー… 25/08) — bản dịch không cướp câu cũ ──
+{
+    const ui = fresh();
+    ui.addOriginal('文A', 1, 'ja');
+    const tA = ui.addTranslation('Câu A');
+    // câu gốc B bị Soniox nuốt, chỉ có bản dịch B đến
+    const tB = ui.addTranslation('Câu B mồ côi');
+    check('S2b: bản dịch mồ côi thành block riêng, không cướp câu gốc đã ghép',
+        tB?.original === null && tA?.original === '文A' && tA?.translation === 'Câu A',
+        JSON.stringify({ tB: tB?.original, tA: tA?.translation }));
+}
+
+// ── S2c: bản dịch đến MUỘN quá cửa sổ tươi — không với về câu gốc cũ ──
+{
+    const ui = fresh();
+    ui.pairFreshMs = 300;
+    ui.addOriginal('古い文', 1, 'ja');
+    await sleep(400);
+    const t = ui.addTranslation('Bản dịch quá muộn');
+    check('S2c: bản dịch quá muộn thành block riêng thay vì ghép liều',
+        t?.original === null, `ghép vào: ${t?.original}`);
 }
 
 // ── S3: bản dịch ngừng hẳn (token status "none") — backlog bị chặn trần ──
@@ -84,6 +110,8 @@ function fresh() {
     ui.addKeyedOriginal('k1', 'チームズの文', 'mri-a', 'ja');
     ui.addOriginal('ソニオックスの文', 1, 'ja');
     const t = ui.addTranslation('Bản dịch Soniox');
+    check('S4: câu extKey không bị recency-drop khi Soniox ghép cặp',
+        ui.segments.some((s) => s.extKey === 'k1'));
     check('S4: addTranslation bỏ qua câu extKey', t?.original === 'ソニオックスの文', `ghép vào: ${t?.original}`);
     await sleep(400);
     ui.addOriginal('次の文', 1, 'ja');

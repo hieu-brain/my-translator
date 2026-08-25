@@ -148,11 +148,14 @@ thanh**, `start_capture` không được gọi.
 - **No CDN**: the WebView runs offline; keep fonts/scripts local.
 - **Assistant latency**: the CLI backend takes ~2-5s per call. Never put it in
   the audio path — it is for the periodic summary and on-demand suggestions.
-- **Soniox pairing là GHÉP THEO VỊ TRÍ** (transcript và bản dịch là hai luồng
-  token rời, không có id nối cặp). TranscriptUI tự-lành: câu gốc quá hạn
-  `staleMs` (10s) bị bỏ khỏi màn hình, backlog chặn ở `maxPendingOriginals`
-  (3). KHÔNG thêm hàng đợi ghép cặp song song ở nơi khác — lấy cặp từ giá trị
-  trả về của `addTranslation()`. Test: `npm run dev:web` → `/dev-tests/pairing.html`.
+- **Soniox pairing GHÉP THEO ĐỘ TƯƠI, không FIFO** (hai luồng token rời, không
+  có id nối cặp). Đo trên log thật: bản dịch đến trong ~0.2s sau câu gốc CỦA NÓ
+  → `addTranslation()` ghép với câu gốc MỚI NHẤT còn trong `pairFreshMs` (8s);
+  câu cũ hơn còn treo bị bỏ khỏi màn hình ngay (bản dịch của chúng đã rơi).
+  FIFO cũ chỉ ghép đúng 7–23% khi có câu rơi. KHÔNG thêm hàng đợi ghép cặp
+  song song ở nơi khác — lấy cặp từ giá trị trả về của `addTranslation()`.
+  Test: `npm run dev:web` → `/dev-tests/pairing.html`. Phân tích log:
+  `token-logs/*.jsonl`.
 - **Furigana** currently marks `.ja` text but has no tokenizer. `TranscriptUI`
   exposes `setFuriganaProvider(fn)`; wiring kuromoji.js (bundled offline) or a
   MeCab-backed Rust command is all that is missing.
