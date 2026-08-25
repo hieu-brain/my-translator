@@ -72,6 +72,7 @@ invoke('meeting_notes_dir', { projectPath, defaultNotesDir })
 invoke('save_meeting_note', { projectPath, defaultNotesDir, datePrefix, title, content })
 invoke('open_path_in_finder', { path })
 invoke('start_caption_bridge', { port, token, channel }) / invoke('stop_caption_bridge')
+invoke('append_token_log', { file, lines })      // debug: ghi luồng token Soniox ra .jsonl
 ```
 
 ## Data Flow
@@ -110,6 +111,7 @@ Audio HW → Rust capture (48kHz stereo) → resample 16kHz mono PCM s16le
 | Sessions (autosave) | `~/Library/Application Support/com.personal.translator/sessions/` |
 | Meeting notes (project) | `<project>-meeting-notes/` beside the project folder |
 | Meeting notes (no project) | `~/Documents/meeting-notes/` or `default_notes_dir` |
+| Token logs (debug Soniox) | `~/Library/Application Support/com.personal.translator/token-logs/` — giữ 20 phiên gần nhất |
 
 ## Keyboard Shortcuts
 | Shortcut | Action |
@@ -146,6 +148,11 @@ thanh**, `start_capture` không được gọi.
 - **No CDN**: the WebView runs offline; keep fonts/scripts local.
 - **Assistant latency**: the CLI backend takes ~2-5s per call. Never put it in
   the audio path — it is for the periodic summary and on-demand suggestions.
+- **Soniox pairing là GHÉP THEO VỊ TRÍ** (transcript và bản dịch là hai luồng
+  token rời, không có id nối cặp). TranscriptUI tự-lành: câu gốc quá hạn
+  `staleMs` (10s) bị bỏ khỏi màn hình, backlog chặn ở `maxPendingOriginals`
+  (3). KHÔNG thêm hàng đợi ghép cặp song song ở nơi khác — lấy cặp từ giá trị
+  trả về của `addTranslation()`. Test: `npm run dev:web` → `/dev-tests/pairing.html`.
 - **Furigana** currently marks `.ja` text but has no tokenizer. `TranscriptUI`
   exposes `setFuriganaProvider(fn)`; wiring kuromoji.js (bundled offline) or a
   MeCab-backed Rust command is all that is missing.

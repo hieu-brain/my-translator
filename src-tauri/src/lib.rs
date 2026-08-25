@@ -123,6 +123,7 @@ pub fn run() {
             commands::project_context::meeting_notes_dir,
             commands::project_context::save_meeting_note,
             commands::project_context::open_path_in_finder,
+            commands::token_log::append_token_log,
             get_platform_info,
             exit_app,
         ])

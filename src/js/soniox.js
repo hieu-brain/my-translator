@@ -47,6 +47,9 @@ export class SonioxClient {
         this.onStatusChange = null;   // (status) => {}
         this.onError = null;          // (error) => {}
         this.onConfidence = null;     // (avgConfidence) => {}
+        // Vòi chẩn đoán: nhận mọi sự kiện WS thô ({kind, ...}) để ghi log
+        // phát lại. Không bao giờ ảnh hưởng đường xử lý chính.
+        this.onDebugEvent = null;
     }
 
     /**
@@ -143,6 +146,7 @@ export class SonioxClient {
             const oldWs = this.ws;
             if (oldWs && oldWs !== newWs) {
                 console.log('[Soniox] Seamless switch: closing old WebSocket');
+                this.onDebugEvent?.({ kind: 'reset_switch' });
                 try {
                     if (oldWs.readyState === WebSocket.OPEN) {
                         oldWs.send(new ArrayBuffer(0)); // graceful close signal
@@ -159,6 +163,7 @@ export class SonioxClient {
             this.isConnected = true;
             this._reconnectAttempts = 0;
             this._setStatus('connected');
+            this.onDebugEvent?.({ kind: 'open' });
             console.log('[Soniox] Connected and config sent');
 
             // Start session timer & keepalive
@@ -169,6 +174,8 @@ export class SonioxClient {
         newWs.onmessage = (event) => {
             // Ignore messages from old WebSocket
             if (newWs._isOld) return;
+
+            this.onDebugEvent?.({ kind: 'msg', raw: event.data });
 
             try {
                 const data = JSON.parse(event.data);
@@ -186,6 +193,7 @@ export class SonioxClient {
 
         newWs.onerror = (event) => {
             if (newWs._isOld) return;
+            this.onDebugEvent?.({ kind: 'error' });
             console.error('[Soniox] WebSocket ERROR:', event);
             this.onError?.('WebSocket error occurred');
         };
@@ -197,6 +205,7 @@ export class SonioxClient {
                 return;
             }
 
+            this.onDebugEvent?.({ kind: 'close', code: event.code, wasClean: event.wasClean });
             console.log('[Soniox] WebSocket CLOSED, code:', event.code, 'reason:', event.reason, 'wasClean:', event.wasClean);
             this.isConnected = false;
 
