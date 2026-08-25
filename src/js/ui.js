@@ -28,6 +28,13 @@ export class TranscriptUI {
         /** 'dual' shows the original line, 'single' hides it. */
         this.viewMode = 'dual';
 
+        // Tự-lành cho ghép cặp theo vị trí (khôi phục từ v0.9.0 — bản
+        // Meeting Edition đánh mất cả hai khi viết lại file này):
+        // câu gốc không có bản dịch sau staleMs bị BỎ khỏi màn hình, và hàng
+        // chờ bị chặn trần. sessionLog không bị đụng — export vẫn đủ câu.
+        this.staleMs = 10000;
+        this.maxPendingOriginals = 3;
+
         this.segments = [];
         this.sessionLog = [];
         this.provisionalText = '';
@@ -161,9 +168,13 @@ export class TranscriptUI {
      * translation as a separate token stream, so the pairing is positional.
      */
     addTranslation(text) {
-        if (!text || !text.trim()) return;
+        if (!text || !text.trim()) return null;
 
-        const pending = this.segments.find((s) => s.status === 'original');
+        // extKey segments pair by key (setKeyedTranslation) — positional
+        // pairing must never consume them.
+        const pending = this.segments.find(
+            (s) => !s.extKey && s.status === 'original'
+        );
         if (pending) {
             pending.translation = text;
             pending.status = 'translated';
@@ -174,23 +185,28 @@ export class TranscriptUI {
                 logged.translation = text;
                 logged.status = 'translated';
             }
-        } else {
-            // Translation with no pending source (engine restarted mid-stream):
-            // keep it rather than dropping the user's content on the floor.
-            const seg = {
-                id: `seg-${++this._segCounter}`,
-                original: null,
-                translation: text,
-                status: 'translated',
-                speaker: this.currentSpeaker,
-                language: this.currentLanguage,
-                confidence: this.lastConfidence,
-                createdAt: Date.now(),
-            };
-            this.segments.push(seg);
-            this.sessionLog.push({ ...seg });
+            this._render();
+            // Trả về cặp vừa ghép: app dùng nó để ghi sessionStore, nên log
+            // và màn hình luôn thống nhất một nguồn ghép duy nhất.
+            return pending;
         }
+
+        // Translation with no pending source (engine restarted mid-stream):
+        // keep it rather than dropping the user's content on the floor.
+        const seg = {
+            id: `seg-${++this._segCounter}`,
+            original: null,
+            translation: text,
+            status: 'translated',
+            speaker: this.currentSpeaker,
+            language: this.currentLanguage,
+            confidence: this.lastConfidence,
+            createdAt: Date.now(),
+        };
+        this.segments.push(seg);
+        this.sessionLog.push({ ...seg });
         this._render();
+        return seg;
     }
 
     setProvisional(text, speaker = null, language = null) {
@@ -557,21 +573,25 @@ export class TranscriptUI {
      * `addTranslation` and every later translation lands on the wrong sentence.
      */
     _cleanupStaleOriginals() {
-        const STALE_MS = 15000;
+        // BỎ câu quá hạn khỏi màn hình chứ không "thăng cấp" bản gốc thành
+        // bản dịch — thăng cấp là nguồn của lỗi "ngập ngừng": cục tiếng Nhật
+        // hiện muộn 15s giữa luồng tiếng Việt. sessionLog giữ nguyên để
+        // export vẫn đủ câu. Câu extKey ghép theo khoá, bản dịch đến muộn là
+        // bình thường — miễn trừ.
         const now = Date.now();
-        // Câu có extKey ghép theo khoá, không theo vị trí — bản dịch đến muộn
-        // không làm lệch gì cả, nên đừng "chữa cháy" bằng cách gán bản gốc.
-        const stale = this.segments.filter(
-            (s) => !s.extKey && s.status === 'original' && now - s.createdAt > STALE_MS
+        const isPending = (s) => !s.extKey && s.status === 'original';
+
+        this.segments = this.segments.filter(
+            (s) => !(isPending(s) && now - s.createdAt > this.staleMs)
         );
-        for (const s of stale) {
-            s.status = 'translated';
-            s.translation = s.original;
-            const logged = this.sessionLog.find((l) => l.id === s.id);
-            if (logged) {
-                logged.status = 'translated';
-                logged.translation = logged.original;
-            }
+
+        // Trần hàng chờ: nếu bản dịch ngừng về (token 'none', rơi mạng),
+        // backlog không được phình — quá trần thì bỏ câu cũ nhất.
+        const pending = this.segments.filter(isPending);
+        while (pending.length > this.maxPendingOriginals) {
+            const oldest = pending.shift();
+            const idx = this.segments.indexOf(oldest);
+            if (idx !== -1) this.segments.splice(idx, 1);
         }
     }
 

@@ -9,6 +9,7 @@
 import { settingsManager } from './settings.js';
 import { TranscriptUI } from './ui.js';
 import { captionBridge } from './caption-bridge.js';
+import { tokenLogger } from './token-log.js';
 import { sonioxClient } from './soniox.js';
 import { sessionStore } from './session-store.js';
 import { MeetingAssistant } from './meeting-assistant.js';
@@ -56,9 +57,7 @@ class App {
         this.sessionMode = 'one_way';
         this.localPipelineReady = false;
 
-        /** Soniox emits source and translation as separate finals — pair FIFO. */
         this._teamsSegments = new Map();
-        this._sonioxOriginalQueue = [];
         this._currentViewedSession = null;
     }
 
@@ -320,13 +319,16 @@ class App {
     _bindEngineCallbacks() {
         sonioxClient.onOriginal = (text, speaker, language) => {
             this.transcriptUI.addOriginal(text, speaker, language);
-            this._sonioxOriginalQueue.push(text);
         };
         sonioxClient.onTranslation = (text) => {
-            this.transcriptUI.addTranslation(text);
-            const src = this._sonioxOriginalQueue.shift() || '';
-            sessionStore.addSegment(src, text);
+            // TranscriptUI là nguồn ghép cặp duy nhất (kèm cơ chế tự-lành).
+            // Hàng đợi song song trước đây không có xử lý quá hạn — một câu
+            // mồ côi làm mọi cặp src/tgt sau đó trong meeting note lệch
+            // vĩnh viễn.
+            const seg = this.transcriptUI.addTranslation(text);
+            sessionStore.addSegment(seg?.original || '', text);
         };
+        sonioxClient.onDebugEvent = (evt) => tokenLogger.log(evt);
         sonioxClient.onProvisional = (text, speaker, language) => {
             if (text) this.transcriptUI.setProvisional(text, speaker, language);
             else this.transcriptUI.clearProvisional();
@@ -595,6 +597,9 @@ class App {
 
     async _startSonioxMode(settings) {
         this._updateStatus('connecting');
+        // Ghi nguyên luồng token ra .jsonl — khi có lỗi ghép cặp giữa họp
+        // thật, file này cho phép phát lại đúng dữ liệu đã gây lỗi.
+        tokenLogger.start('soniox');
         sonioxClient.connect({
             apiKey: settings.soniox_api_key,
             sourceLanguage: settings.source_language,
@@ -731,7 +736,7 @@ class App {
         }
 
         this.transcriptUI.clearProvisional();
-        this._sonioxOriginalQueue.length = 0;
+        tokenLogger.stop();
 
         // Câu chưa kịp có bản dịch: lấy bản gốc làm bản dịch để meeting note và
         // export không có ô trống.

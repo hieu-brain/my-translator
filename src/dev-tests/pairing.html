@@ -1,0 +1,104 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<title>Soniox pairing — self-heal tests</title>
+<style>
+    body { font: 14px/1.7 ui-monospace, monospace; padding: 28px; background: #101014; color: #d8d8de; }
+    h1 { font-size: 15px; } .sub { opacity: .55; font-size: 12px; margin-bottom: 20px; }
+    .pass { color: #4ade80; } .fail { color: #f87171; font-weight: 700; }
+    #summary { margin-top: 18px; padding-top: 12px; border-top: 1px solid #333; font-weight: 700; }
+</style>
+</head>
+<body>
+<h1>Soniox pairing — kiểm tra cơ chế tự-lành khi rơi token</h1>
+<p class="sub">Chạy: <code>npm run dev:web</code> → mở <code>/dev-tests/pairing.html</code>.
+Giả lập đúng chuỗi callback onOriginal/onTranslation mà soniox.js phát ra, có cố ý làm rơi bản dịch.</p>
+<div id="out"></div>
+<div id="summary"></div>
+<div id="host" style="display:none"></div>
+
+<script type="module">
+import { TranscriptUI } from '../js/ui.js';
+
+const out = document.getElementById('out');
+const results = [];
+function check(name, cond, detail = '') {
+    results.push(cond);
+    const div = document.createElement('div');
+    div.className = cond ? 'pass' : 'fail';
+    div.textContent = `${cond ? '✓' : '✗'} ${name}${cond ? '' : '  ← ' + detail}`;
+    out.appendChild(div);
+}
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+function fresh() {
+    const host = document.createElement('div');
+    document.getElementById('host').appendChild(host);
+    const ui = new TranscriptUI(host);
+    ui.staleMs = 250; // rút ngắn cửa sổ quá hạn cho test
+    return ui;
+}
+
+// ── S1: luồng bình thường — từng cặp ghép đúng, trả về đúng segment ──
+{
+    const ui = fresh();
+    ui.addOriginal('お疲れ様です', 1, 'ja');
+    const s1 = ui.addTranslation('Chào anh');
+    ui.addOriginal('本日の議題です', 1, 'ja');
+    const s2 = ui.addTranslation('Chương trình hôm nay');
+    check('S1: không rơi token → ghép đúng từng cặp',
+        s1?.original === 'お疲れ様です' && s2?.original === '本日の議題です',
+        JSON.stringify([s1?.original, s2?.original]));
+    check('S1: addTranslation trả về segment cho sessionStore', !!s1 && s1.translation === 'Chào anh');
+}
+
+// ── S2: rơi MỘT bản dịch — lệch đúng 1 cặp rồi tự lành, không có tiếng Nhật giả ──
+{
+    const ui = fresh();
+    ui.addOriginal('文一', 1, 'ja');          // bản dịch của câu này không bao giờ đến
+    ui.addOriginal('文二', 1, 'ja');
+    const t2 = ui.addTranslation('Câu hai');  // ghép nhầm vào 文一 — hệ quả cố hữu của ghép vị trí
+    check('S2: cặp lệch bị giới hạn ở đúng 1 (ghép vào 文一)', t2?.original === '文一', `ghép vào: ${t2?.original}`);
+    await sleep(400);                          // vượt cửa sổ staleMs
+    ui.addOriginal('文三', 1, 'ja');           // addOriginal kích hoạt cleanup → 文二 quá hạn bị bỏ
+    const t3 = ui.addTranslation('Câu ba');
+    check('S2: sau cửa sổ quá hạn, cặp tiếp theo ĐÚNG trở lại — hết drift vĩnh viễn',
+        t3?.original === '文三', `ghép vào: ${t3?.original}`);
+    check('S2: không câu tiếng Nhật nào bị thăng cấp thành "bản dịch" (lỗi ngập ngừng cũ)',
+        !ui.segments.some((s) => s.original && s.translation === s.original));
+}
+
+// ── S3: bản dịch ngừng hẳn (token status "none") — backlog bị chặn trần ──
+{
+    const ui = fresh();
+    for (let i = 0; i < 8; i++) ui.addOriginal(`未訳${i}`, 1, 'ja');
+    const pending = ui.segments.filter((s) => !s.extKey && s.status === 'original').length;
+    check(`S3: backlog chưa dịch bị chặn ở trần ${ui.maxPendingOriginals}`,
+        pending <= ui.maxPendingOriginals, `đang chờ: ${pending}`);
+    check('S3: sessionLog vẫn giữ đủ 8 câu cho export', ui.sessionLog.length === 8, `log: ${ui.sessionLog.length}`);
+}
+
+// ── S4: câu Teams (extKey) miễn nhiễm với ghép vị trí lẫn cleanup ──
+{
+    const ui = fresh();
+    ui.addKeyedOriginal('k1', 'チームズの文', 'mri-a', 'ja');
+    ui.addOriginal('ソニオックスの文', 1, 'ja');
+    const t = ui.addTranslation('Bản dịch Soniox');
+    check('S4: addTranslation bỏ qua câu extKey', t?.original === 'ソニオックスの文', `ghép vào: ${t?.original}`);
+    await sleep(400);
+    ui.addOriginal('次の文', 1, 'ja');
+    check('S4: câu extKey không bị cleanup xoá dù bản dịch chưa về',
+        ui.segments.some((s) => s.extKey === 'k1'));
+    ui.setKeyedTranslation('k1', 'Câu từ Teams');
+    check('S4: setKeyedTranslation vẫn ghép đúng theo khoá',
+        ui.segments.find((s) => s.extKey === 'k1')?.translation === 'Câu từ Teams');
+}
+
+const failed = results.filter((r) => !r).length;
+const summary = document.getElementById('summary');
+summary.textContent = failed ? `✗ ${failed}/${results.length} FAIL` : `✓ ${results.length}/${results.length} PASS`;
+summary.className = failed ? 'fail' : 'pass';
+document.title = summary.textContent;
+</script>
+</body>
+</html>
