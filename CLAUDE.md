@@ -148,6 +148,13 @@ thanh**, `start_capture` không được gọi.
 - **No CDN**: the WebView runs offline; keep fonts/scripts local.
 - **Assistant latency**: the CLI backend takes ~2-5s per call. Never put it in
   the audio path — it is for the periodic summary and on-demand suggestions.
+- **App phải ký bằng danh tính ổn định, không ad-hoc.** macOS TCC nhận diện app
+  ad-hoc bằng `cdhash`, đổi mỗi lần build → quyền Screen Recording / Micro đã
+  cấp mất hiệu lực sau mỗi lần build lại (System Settings vẫn hiện tick nhưng
+  thực tế bị từ chối). `bundle.macOS.signingIdentity` trong tauri.conf.json trỏ
+  tới chứng chỉ Apple Development; designated requirement khi đó khoá theo danh
+  tính ký nên quyền sống sót qua mọi lần build. Cũng nhớ chỉ chạy MỘT bản —
+  `/Applications` — đừng lẫn với bản trong `target/release/bundle/macos/`.
 - **Tauri v2 chặn API theo capabilities.** Dùng một API mới của plugin (vd
   `dialog.ask`) mà quên thêm quyền vào `src-tauri/capabilities/default.json`
   thì lời gọi bị TỪ CHỐI LÚC CHẠY — không lỗi biên dịch. Đã dính một lần:

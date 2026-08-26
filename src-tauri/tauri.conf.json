@@ -48,7 +48,8 @@
     "macOS": {
       "entitlements": "Entitlements.plist",
       "frameworks": [],
-      "minimumSystemVersion": "13.0"
+      "minimumSystemVersion": "13.0",
+      "signingIdentity": "Apple Development: nguyenngochieus@outlook.com (3XBVQB9842)"
     }
   }
 }
