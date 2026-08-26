@@ -797,20 +797,34 @@ class App {
         const message =
             'Lưu transcript và meeting note, sau đó đóng phiên này.\n' +
             'Lần Start tới sẽ bắt đầu một phiên mới.';
-        try {
-            const ask = window.__TAURI__?.dialog?.ask;
-            if (ask) {
+
+        const ask = window.__TAURI__?.dialog?.ask;
+        if (ask) {
+            try {
                 return await ask(message, {
                     title: 'Kết thúc cuộc họp?',
                     kind: 'info',
                     okLabel: 'Kết thúc & lưu',
                     cancelLabel: 'Họp tiếp',
                 });
+            } catch (err) {
+                // Thiếu quyền trong capabilities, hoặc plugin dialog chưa nạp.
+                console.warn('dialog.ask thất bại:', err);
             }
-        } catch (err) {
-            console.warn('dialog.ask failed, falling back to confirm():', err);
         }
-        return window.confirm(`Kết thúc cuộc họp?\n\n${message}`);
+
+        // dev:web chạy trong trình duyệt thật — confirm() ở đó đáng tin.
+        if (!window.__TAURI__) {
+            return window.confirm(`Kết thúc cuộc họp?\n\n${message}`);
+        }
+
+        // WebView của Tauri KHÔNG hiện confirm() gốc: nó trả false ngay, và
+        // trước đây điều đó nuốt luôn lệnh Dừng — không hỏi, không lưu, không
+        // xoá. Hỏi được thì tốt; không hỏi được thì vẫn phải kết thúc, vì mất
+        // dữ liệu tệ hơn nhiều so với bỏ qua một lần xác nhận.
+        console.warn('Không mở được hộp thoại xác nhận — kết thúc phiên không hỏi.');
+        this._showToast('Đang lưu và kết thúc phiên…');
+        return true;
     }
 
     // ─── Meeting note ──────────────────────────────────────

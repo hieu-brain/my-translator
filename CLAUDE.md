@@ -148,6 +148,13 @@ thanh**, `start_capture` không được gọi.
 - **No CDN**: the WebView runs offline; keep fonts/scripts local.
 - **Assistant latency**: the CLI backend takes ~2-5s per call. Never put it in
   the audio path — it is for the periodic summary and on-demand suggestions.
+- **Tauri v2 chặn API theo capabilities.** Dùng một API mới của plugin (vd
+  `dialog.ask`) mà quên thêm quyền vào `src-tauri/capabilities/default.json`
+  thì lời gọi bị TỪ CHỐI LÚC CHẠY — không lỗi biên dịch. Đã dính một lần:
+  thiếu `dialog:allow-ask` khiến nút Dừng không hiện hộp thoại, không lưu,
+  không xoá. Mọi nhánh dự phòng của hộp thoại phải **fail-open** (vẫn thực
+  hiện hành động) — nuốt lệnh của người dùng là mất dữ liệu. Lưu ý
+  `window.confirm()` KHÔNG hiện trong WebView của Tauri, nó trả `false` ngay.
 - **Soniox pairing GHÉP THEO ĐỘ TƯƠI, không FIFO** (hai luồng token rời, không
   có id nối cặp). Đo trên log thật: bản dịch đến trong ~0.2s sau câu gốc CỦA NÓ
   → `addTranslation()` ghép với câu gốc MỚI NHẤT còn trong `pairFreshMs` (8s);
