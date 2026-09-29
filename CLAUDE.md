@@ -38,6 +38,7 @@ src/                          # Frontend
     meeting-assistant.js      # Rolling summary + reply suggestions
     llm-backend.js            # claude-cli | anthropic-api provider abstraction
     context-providers.js      # Project docs / Backlog / note files
+    window-bounds.js          # Kẹp vị trí cửa sổ vào màn hình đang có (hàm thuần)
     tauri-mock.js             # Browser-dev mocks (only on :3111)
 
 src-tauri/src/
@@ -148,6 +149,12 @@ thanh**, `start_capture` không được gọi.
 - **No CDN**: the WebView runs offline; keep fonts/scripts local.
 - **Assistant latency**: the CLI backend takes ~2-5s per call. Never put it in
   the audio path — it is for the periodic summary and on-demand suggestions.
+- **Vị trí cửa sổ đã lưu phải kẹp vào màn hình ĐANG kết nối.** Cửa sổ nằm trên
+  màn hình ngoài, rút ra, mở app lại → vị trí đã lưu trỏ ngoài vùng nhìn thấy
+  và app trông như "không mở lên" (thực ra vẫn chạy). Ngưỡng cứng kiểu
+  `x > 5000` vô dụng: x=1458 hợp lý trên màn 2560 nhưng nằm ngoài màn 1440.
+  Logic ở `src/js/window-bounds.js` (hàm thuần), app.js chỉ lấy
+  `availableMonitors()` rồi giao cho nó. Test: `/dev-tests/window-position.html`.
 - **App phải ký bằng danh tính ổn định, không ad-hoc.** macOS TCC nhận diện app
   ad-hoc bằng `cdhash`, đổi mỗi lần build → quyền Screen Recording / Micro đã
   cấp mất hiệu lực sau mỗi lần build lại (System Settings vẫn hiện tick nhưng
