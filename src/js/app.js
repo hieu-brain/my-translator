@@ -10,6 +10,7 @@ import { settingsManager } from './settings.js';
 import { TranscriptUI } from './ui.js';
 import { captionBridge } from './caption-bridge.js';
 import { tokenLogger } from './token-log.js';
+import { normalizeMonitors, clampToVisibleScreen } from './window-bounds.js';
 import { sonioxClient } from './soniox.js';
 import { sessionStore } from './session-store.js';
 import { MeetingAssistant } from './meeting-assistant.js';
@@ -1639,19 +1640,48 @@ class App {
             const state = JSON.parse(saved);
             const { LogicalPosition, LogicalSize } = window.__TAURI__.window;
 
-            // A monitor that went away can leave the saved position off-screen,
-            // which would open the window somewhere the user can't reach it.
-            if (state.x < -100 || state.y < -100 || state.x > 5000 || state.y > 3000) {
+            const hasSize = state.width >= 300 && state.height >= 100;
+            const width = hasSize ? state.width : 900;
+            const height = hasSize ? state.height : 500;
+
+            // Vị trí đã lưu phải được đối chiếu với màn hình ĐANG CÓ. Ngưỡng
+            // cứng trước đây (x > 5000) không bắt được ca thường gặp nhất: rút
+            // màn hình ngoài ra, x=1458 vẫn "hợp lệ" nhưng nằm trọn ngoài màn
+            // hình 1440 — app mở lên mà không thấy đâu.
+            const spot = await this._clampToVisibleScreen(state.x, state.y, width, height);
+            if (!spot) {
                 localStorage.removeItem('window_state');
-                return;
+                return;   // để Tauri tự căn giữa
             }
-            if (state.width >= 300 && state.height >= 100) {
-                await this.appWindow.setSize(new LogicalSize(state.width, state.height));
+
+            if (hasSize) {
+                await this.appWindow.setSize(new LogicalSize(width, height));
             }
-            await this.appWindow.setPosition(new LogicalPosition(state.x, state.y));
+            await this.appWindow.setPosition(new LogicalPosition(spot.x, spot.y));
         } catch (err) {
             localStorage.removeItem('window_state');
         }
+    }
+
+    /**
+     * Lấy danh sách màn hình từ Tauri rồi giao phần tính toán cho
+     * window-bounds.js (hàm thuần, có test riêng).
+     */
+    async _clampToVisibleScreen(x, y, w, h) {
+        const { availableMonitors, primaryMonitor } = window.__TAURI__.window;
+
+        let monitors = [];
+        try {
+            monitors = (await availableMonitors?.()) || [];
+        } catch { /* thử primaryMonitor bên dưới */ }
+        if (!monitors.length) {
+            try {
+                const m = await primaryMonitor?.();
+                if (m) monitors = [m];
+            } catch { /* không có thông tin màn hình */ }
+        }
+
+        return clampToVisibleScreen(normalizeMonitors(monitors), x, y, w, h);
     }
 
     async _bindCloseHooks() {

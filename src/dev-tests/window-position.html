@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<title>Window position — clamp vào màn hình thật</title>
+<style>
+  body { font: 14px/1.7 ui-monospace, monospace; padding: 28px; background: #101014; color: #d8d8de; }
+  h1 { font-size: 15px; } .sub { opacity: .55; font-size: 12px; margin-bottom: 20px; }
+  .pass { color: #4ade80; } .fail { color: #f87171; font-weight: 700; }
+  #summary { margin-top: 18px; padding-top: 12px; border-top: 1px solid #333; font-weight: 700; }
+</style>
+</head>
+<body>
+<h1>Khôi phục vị trí cửa sổ — kẹp vào màn hình đang kết nối</h1>
+<p class="sub">Tái hiện ca thật 29/09: vị trí lưu x=1458 từ màn hình ngoài đã rút,
+màn hình còn lại chỉ rộng 1440 → cửa sổ mở ra ngoài vùng nhìn thấy.</p>
+<div id="out"></div>
+<div id="summary"></div>
+
+<script type="module">
+import { normalizeMonitors, clampToVisibleScreen } from '../js/window-bounds.js';
+
+const out = document.getElementById('out');
+const results = [];
+function check(name, cond, detail = '') {
+    results.push(cond);
+    const d = document.createElement('div');
+    d.className = cond ? 'pass' : 'fail';
+    d.textContent = `${cond ? '✓' : '✗'} ${name}${cond ? '' : '  ← ' + detail}`;
+    out.appendChild(d);
+}
+// monitor như Tauri trả về: pixel vật lý
+const mon = (x, y, w, h, f = 1) =>
+    ({ position: { x: x * f, y: y * f }, size: { width: w * f, height: h * f }, scaleFactor: f });
+const run = (monitors, x, y, w, h) =>
+    clampToVisibleScreen(normalizeMonitors(monitors), x, y, w, h);
+
+const LAPTOP = mon(0, 0, 1440, 900);
+
+// ── Ca thật 29/09 ──
+{
+    const r = run([LAPTOP], 1458, 386, 820, 629);
+    check('Ca thật: x=1458 trên màn 1440 → kéo về trong màn hình',
+        r && r.x >= 0 && r.x + 820 <= 1440, JSON.stringify(r));
+    check('Ca thật: y cũng nằm gọn trong màn hình',
+        r && r.y >= 0 && r.y + 629 <= 900, JSON.stringify(r));
+}
+
+// ── Không được đụng vào vị trí đang hợp lệ ──
+check('Vị trí đang nhìn thấy được thì giữ nguyên',
+    (() => { const r = run([LAPTOP], 310, 140, 820, 629); return r?.x === 310 && r?.y === 140; })());
+
+// ── Còn màn hình ngoài thì tôn trọng vị trí trên đó ──
+check('Còn màn hình ngoài → giữ nguyên vị trí trên màn hình đó',
+    (() => { const r = run([LAPTOP, mon(1440, 0, 2560, 1440)], 1458, 386, 820, 629);
+             return r?.x === 1458 && r?.y === 386; })());
+
+// ── Thò ra mép là cố ý ──
+check('Thò ra mép phải nhưng còn thấy >120px → giữ nguyên',
+    (() => run([LAPTOP], 1200, 140, 820, 629)?.x === 1200)());
+
+// ── Retina scaleFactor 2 ──
+check('scaleFactor=2: quy về toạ độ logic đúng',
+    (() => { const r = run([mon(0, 0, 1440, 900, 2)], 1458, 386, 820, 629);
+             return r && r.x + 820 <= 1440; })());
+
+// ── Cửa sổ rộng hơn màn hình: bám mép trái, không trôi ra ngoài ──
+check('Cửa sổ rộng hơn màn hình → bám mép trái',
+    (() => run([mon(0, 0, 800, 600)], 2000, 100, 1000, 400)?.x === 0)());
+
+// ── Không có thông tin màn hình ──
+check('Không có màn hình nào → null (bỏ vị trí đã lưu, để Tauri căn giữa)',
+    run([], 1458, 386, 820, 629) === null);
+
+const failed = results.filter((r) => !r).length;
+const s = document.getElementById('summary');
+s.textContent = failed ? `✗ ${failed}/${results.length} FAIL` : `✓ ${results.length}/${results.length} PASS`;
+s.className = failed ? 'fail' : 'pass';
+document.title = s.textContent;
+</script>
+</body>
+</html>

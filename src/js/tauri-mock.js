@@ -160,6 +160,16 @@ JA: 来週は少し厳しいので、あと2日いただけますか？`;
             openUrl: async (url) => window.open(url, '_blank'),
         },
         window: {
+            availableMonitors: async () => ([{
+                position: { x: 0, y: 0 },
+                size: { width: 1440, height: 900 },
+                scaleFactor: 1,
+            }]),
+            primaryMonitor: async () => ({
+                position: { x: 0, y: 0 },
+                size: { width: 1440, height: 900 },
+                scaleFactor: 1,
+            }),
             LogicalPosition: class { constructor(x, y) { this.x = x; this.y = y; } },
             LogicalSize: class { constructor(width, height) { this.width = width; this.height = height; } },
             getCurrentWindow: () => ({
