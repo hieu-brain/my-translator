@@ -177,6 +177,20 @@ thanh**, `start_capture` không được gọi.
   song song ở nơi khác — lấy cặp từ giá trị trả về của `addTranslation()`.
   Test: `npm run dev:web` → `/dev-tests/pairing.html`. Phân tích log:
   `token-logs/*.jsonl`.
+- **`both` phải TRỘN mẫu, không nối khối.** Nhánh `"both"` cũ đẩy nguyên khối
+  200 ms của system rồi của mic vào chung một kênh → Soniox nghe 1 giây thật
+  thành 2 giây xen kẽ, câu nào cũng bị băm; tiếng của chính người dùng gần như
+  mất (độ phủ 12% ở buổi 18/09). `audio/mixer.rs` cộng mẫu có bão hoà, đệm hai
+  nguồn và xả một mình khi nguồn kia im quá 300 ms. Test: `cargo test mixer`.
+- **`CustomContext` phải có đủ field của form.** Form gửi `general` (map),
+  `terms`, `text`, `translation_terms`; struct Rust từng chỉ có `domain` +
+  `translation_terms` nên Transcription terms gõ vào là mất sau khi lưu, và
+  `soniox.js` từng chỉ nhận `general` dạng mảng. Test:
+  `cargo test settings::tests`. Khi thêm ô mới vào Context, đi đủ 3 chặng:
+  form → settings.json → config message trong `soniox.js`.
+- **Đo chất lượng sau họp**: `benchmarks/compare-with-teams-transcript.mjs`
+  (transcript Teams ↔ note của app, 5 số). Term/roster theo dự án nằm ở
+  `docs/profiles/` (gitignore).
 - **Furigana** currently marks `.ja` text but has no tokenizer. `TranscriptUI`
   exposes `setFuriganaProvider(fn)`; wiring kuromoji.js (bundled offline) or a
   MeCab-backed Rust command is all that is missing.
