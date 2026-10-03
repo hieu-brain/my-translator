@@ -1,4 +1,5 @@
 pub mod microphone;
+pub mod mixer;
 pub mod resampler;
 pub mod system_audio;
 

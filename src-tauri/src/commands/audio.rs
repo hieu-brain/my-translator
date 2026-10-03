@@ -1,4 +1,5 @@
 use crate::audio::microphone::MicCapture;
+use crate::audio::mixer::{Mixer, Source, MAX_LAG_SAMPLES};
 use crate::audio::SystemAudioCapture;
 use serde::Serialize;
 use std::sync::mpsc;
@@ -51,34 +52,58 @@ pub fn start_capture(
             mic.start()?
         }
         "both" => {
-            // Start both sources and merge into a single receiver
+            // Start both sources and MIX them sample-by-sample. Forwarding
+            // whole chunks from each source into one channel (the previous
+            // code) interleaves them in time: Soniox then hears 200 ms of the
+            // meeting, 200 ms of the mic, and so on — twice the duration,
+            // every utterance chopped. See audio::mixer.
             let sys = state.system_audio.lock().map_err(|e| e.to_string())?;
             let sys_rx = sys.start()?;
             let mut mic = state.microphone.lock().map_err(|e| e.to_string())?;
             let mic_rx = mic.start()?;
 
-            let (merged_tx, merged_rx) = mpsc::channel::<Vec<u8>>();
-            let tx1 = merged_tx.clone();
-            let tx2 = merged_tx;
+            let (tagged_tx, tagged_rx) = mpsc::channel::<(Source, Vec<u8>)>();
+            let tx_sys = tagged_tx.clone();
+            let tx_mic = tagged_tx;
 
-            // Forward system audio to merged channel
             std::thread::spawn(move || {
                 while let Ok(data) = sys_rx.recv() {
-                    if tx1.send(data).is_err() {
+                    if tx_sys.send((Source::System, data)).is_err() {
                         break;
                     }
                 }
             });
-            // Forward mic audio to merged channel
             std::thread::spawn(move || {
                 while let Ok(data) = mic_rx.recv() {
-                    if tx2.send(data).is_err() {
+                    if tx_mic.send((Source::Microphone, data)).is_err() {
                         break;
                     }
                 }
             });
 
-            merged_rx
+            let (mixed_tx, mixed_rx) = mpsc::channel::<Vec<u8>>();
+            std::thread::spawn(move || {
+                let mut mixer = Mixer::new();
+                loop {
+                    match tagged_rx.recv_timeout(std::time::Duration::from_millis(50)) {
+                        Ok((src, data)) => mixer.push(src, &data),
+                        Err(mpsc::RecvTimeoutError::Timeout) => {}
+                        Err(mpsc::RecvTimeoutError::Disconnected) => {
+                            if let Some(rest) = mixer.flush() {
+                                let _ = mixed_tx.send(rest);
+                            }
+                            break;
+                        }
+                    }
+                    if let Some(out) = mixer.drain(MAX_LAG_SAMPLES) {
+                        if mixed_tx.send(out).is_err() {
+                            break;
+                        }
+                    }
+                }
+            });
+
+            mixed_rx
         }
         _ => return Err(format!("Unknown source: {}", source)),
     };
