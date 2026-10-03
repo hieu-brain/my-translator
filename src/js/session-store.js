@@ -147,6 +147,36 @@ export class SessionStore {
         return await this.persist();
     }
 
+    /** True once anything for this session id has reached disk (autosave or persist). */
+    hasPersisted() {
+        return this._persistedMutations > 0;
+    }
+
+    /**
+     * Throw the session away: stop autosave, delete whatever autosave already
+     * wrote for this id, and forget the content. The caller re-inits for the
+     * next session. Resolves even if the delete fails (nothing left to save).
+     */
+    async discard() {
+        this._cancelAutosave();
+        const id = this.id;
+        const persisted = this.hasPersisted();
+        this.chunks = [];
+        this.currentChunk = null;
+        this._mutations = 0;
+        this._persistedMutations = 0;
+        this._persistChain = Promise.resolve();
+        if (id && persisted) {
+            try {
+                await invoke('delete_session', { id });
+            } catch (err) {
+                console.error('[SessionStore] delete_session failed:', err);
+                return 'delete_failed';
+            }
+        }
+        return 'discarded';
+    }
+
     async setTitle(newTitle) {
         const t = (newTitle || '').trim().slice(0, 200);
         this.title = t;

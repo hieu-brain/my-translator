@@ -322,6 +322,13 @@ input[type="range"]::-webkit-slider-thumb{-webkit-appearance:none;width:14px;hei
 .modal-footer{padding:12px 24px 20px;display:flex;justify-content:flex-end}
 .secondary-btn{background:var(--surface-tint-hover);color:var(--on-surface-variant);border:1px solid var(--outline);border-radius:8px;padding:8px 20px;font-size:.85em;cursor:pointer;font-family:inherit}
 .secondary-btn:hover{color:var(--on-surface)}
+.end-session-card{max-width:400px}
+.end-session-actions{gap:8px;flex-wrap:wrap}
+.end-session-actions .secondary-btn:first-child{margin-right:auto}
+.primary-btn{background:var(--primary);color:var(--on-primary);border:1px solid transparent;border-radius:8px;padding:8px 20px;font-size:.85em;font-weight:600;cursor:pointer;font-family:inherit}
+.primary-btn:hover{filter:brightness(1.1)}
+.danger-btn{color:var(--error,#ff8a80);border-color:var(--error,#ff8a80)}
+.danger-btn:hover{background:rgba(255,138,128,.12);color:var(--error,#ff8a80)}
 .shortcut-card{max-width:340px}
 .shortcut-title{margin:0 0 10px;font-size:14px;padding:20px 24px 0}
 .shortcut-table{width:calc(100% - 48px);margin:0 24px 20px;border-collapse:collapse;font-size:12px}

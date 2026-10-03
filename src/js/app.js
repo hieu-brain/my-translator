@@ -760,12 +760,22 @@ class App {
         // dừng rồi mới hỏi thì khoảng hỏi đó là một lỗ hổng transcript.
         // Chỉ hỏi khi có nội dung — phiên trống thì dừng luôn khỏi phiền.
         const hasContent = !sessionStore.isEmpty() || this.transcriptUI.hasContent();
-        if (hasContent && !(await this._confirmEndSession())) return;
+        const choice = hasContent ? await this._askEndSession() : 'save';
+        if (choice === 'cancel') return;
 
         if (this.isRunning) await this.pause();
 
         if (!hasContent) {
             this._showToast('Chưa có nội dung để lưu');
+            return;
+        }
+
+        if (choice === 'discard') {
+            const r = await sessionStore.discard();
+            this._resetForNextSession();
+            this._showToast(r === 'discarded'
+                ? 'Đã bỏ phiên, không lưu gì'
+                : 'Đã bỏ phiên — nhưng không xoá được file autosave', r === 'discarded' ? 'success' : 'error');
             return;
         }
 
@@ -777,10 +787,21 @@ class App {
 
         const result = await sessionStore.endSession();
         if (result === 'failed') {
+            // Giữ nguyên màn hình: người dùng còn copy tay được.
             this._showToast('Lưu thất bại — session vẫn còn trong bộ nhớ', 'error');
             return;
         }
 
+        // Lưu xong mới xoá màn hình. Trước đây bước này thiếu nên nội dung cũ
+        // vẫn nằm đó và trông như "chưa kết thúc".
+        this._resetForNextSession();
+    }
+
+    /** Xoá transcript + tóm tắt trên màn hình và mở một session id mới. */
+    _resetForNextSession() {
+        this.transcriptUI.clear();
+        this.assistant.reset();
+        this._teamsSegments.clear();
         this.sessionStartTime = null;
         const settings = settingsManager.get();
         sessionStore.init({
@@ -791,41 +812,38 @@ class App {
     }
 
     /**
-     * true = kết thúc và lưu. Dùng dialog gốc của Tauri; dev:web (:3111)
-     * không có plugin dialog nên rơi về window.confirm.
+     * Hỏi người dùng muốn làm gì với phiên: 'save' | 'discard' | 'cancel'.
+     * Dùng bảng chọn trong app vì hộp thoại gốc chỉ có 2 nút, và vì
+     * `window.confirm()` không hiện trong WebView của Tauri. Không mở được
+     * bảng (thiếu DOM) thì fail-open về 'save' — nuốt lệnh Dừng là mất dữ liệu.
      */
-    async _confirmEndSession() {
-        const message =
-            'Lưu transcript và meeting note, sau đó đóng phiên này.\n' +
-            'Lần Start tới sẽ bắt đầu một phiên mới.';
-
-        const ask = window.__TAURI__?.dialog?.ask;
-        if (ask) {
-            try {
-                return await ask(message, {
-                    title: 'Kết thúc cuộc họp?',
-                    kind: 'info',
-                    okLabel: 'Kết thúc & lưu',
-                    cancelLabel: 'Họp tiếp',
-                });
-            } catch (err) {
-                // Thiếu quyền trong capabilities, hoặc plugin dialog chưa nạp.
-                console.warn('dialog.ask thất bại:', err);
-            }
+    _askEndSession() {
+        const sheet = document.getElementById('end-session-sheet');
+        if (!sheet) {
+            console.warn('Không có #end-session-sheet — kết thúc và lưu không hỏi.');
+            return Promise.resolve('save');
         }
-
-        // dev:web chạy trong trình duyệt thật — confirm() ở đó đáng tin.
-        if (!window.__TAURI__) {
-            return window.confirm(`Kết thúc cuộc họp?\n\n${message}`);
-        }
-
-        // WebView của Tauri KHÔNG hiện confirm() gốc: nó trả false ngay, và
-        // trước đây điều đó nuốt luôn lệnh Dừng — không hỏi, không lưu, không
-        // xoá. Hỏi được thì tốt; không hỏi được thì vẫn phải kết thúc, vì mất
-        // dữ liệu tệ hơn nhiều so với bỏ qua một lần xác nhận.
-        console.warn('Không mở được hộp thoại xác nhận — kết thúc phiên không hỏi.');
-        this._showToast('Đang lưu và kết thúc phiên…');
-        return true;
+        return new Promise((resolve) => {
+            const finish = (choice) => {
+                sheet.style.display = 'none';
+                sheet.removeEventListener('click', onClick);
+                document.removeEventListener('keydown', onKey, true);
+                resolve(choice);
+            };
+            const onClick = (e) => {
+                const btn = e.target.closest('[data-choice]');
+                if (btn) finish(btn.dataset.choice);
+                else if (e.target === sheet) finish('cancel');
+            };
+            const onKey = (e) => {
+                if (e.key === 'Escape') { e.stopPropagation(); finish('cancel'); }
+                if (e.key === 'Enter' && !e.metaKey) { e.stopPropagation(); finish('save'); }
+            };
+            sheet.addEventListener('click', onClick);
+            document.addEventListener('keydown', onKey, true);
+            sheet.style.display = 'flex';
+            sheet.querySelector('[data-choice="save"]')?.focus();
+        });
     }
 
     // ─── Meeting note ──────────────────────────────────────
