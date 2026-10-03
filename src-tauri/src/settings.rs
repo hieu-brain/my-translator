@@ -10,11 +10,27 @@ pub struct TranslationTerm {
     pub target: String,
 }
 
-/// Custom context for Soniox — provides domain-specific hints
+/// Custom context for Soniox — provides domain-specific hints.
+///
+/// Every field the settings form collects must exist here: serde silently
+/// drops unknown fields on save, so a missing field means the user types a
+/// value, sees it in the form once, and it never reaches Soniox. That is
+/// exactly what happened to `terms`, `general` and `text` before they were
+/// added — transcription terms never persisted.
 #[derive(Debug, Serialize, Deserialize, Clone, Default)]
 #[serde(default)]
 pub struct CustomContext {
+    /// Legacy single domain string (older settings files). The form writes
+    /// `general` instead; soniox.js falls back to this when `general` is empty.
     pub domain: Option<String>,
+    /// Free-form key → value hints (domain, topic, speakers…). Stored as a map
+    /// because that is what the form produces; soniox.js converts to the
+    /// `[{key, value}]` list the API wants.
+    pub general: std::collections::BTreeMap<String, String>,
+    /// Transcription terms: words Soniox should expect (names, project jargon).
+    pub terms: Vec<String>,
+    /// Longer unstructured background text.
+    pub text: String,
     pub translation_terms: Vec<TranslationTerm>,
 }
 
@@ -223,3 +239,37 @@ impl Settings {
 
 /// Thread-safe settings state managed by Tauri
 pub struct SettingsState(pub Mutex<Settings>);
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Guards the serde-drops-unknown-fields trap: every field the settings
+    /// form writes into `custom_context` must survive a save/load round trip,
+    /// otherwise it silently never reaches Soniox.
+    #[test]
+    fn custom_context_round_trips_every_form_field() {
+        let json = r#"{
+            "general": {"domain": "NOD weekly", "speakers": "坂田, 松井"},
+            "terms": ["ヒエウ", "ランシステム"],
+            "text": "background",
+            "translation_terms": [{"source": "ヒエウ", "target": "Hieu"}]
+        }"#;
+        let ctx: CustomContext = serde_json::from_str(json).unwrap();
+        let back: CustomContext =
+            serde_json::from_str(&serde_json::to_string(&ctx).unwrap()).unwrap();
+        assert_eq!(back.general.get("domain").map(String::as_str), Some("NOD weekly"));
+        assert_eq!(back.general.len(), 2);
+        assert_eq!(back.terms, vec!["ヒエウ", "ランシステム"]);
+        assert_eq!(back.text, "background");
+        assert_eq!(back.translation_terms.len(), 1);
+    }
+
+    #[test]
+    fn legacy_custom_context_without_new_fields_still_loads() {
+        let ctx: CustomContext =
+            serde_json::from_str(r#"{"domain": "old", "translation_terms": []}"#).unwrap();
+        assert_eq!(ctx.domain.as_deref(), Some("old"));
+        assert!(ctx.terms.is_empty() && ctx.general.is_empty() && ctx.text.is_empty());
+    }
+}

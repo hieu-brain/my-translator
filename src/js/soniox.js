@@ -415,12 +415,20 @@ export class SonioxClient {
         const context = {};
         let hasContent = false;
 
-        // General key-value pairs
+        // General key-value pairs. The settings form stores a plain map
+        // ({domain: "...", speakers: "..."}); older code produced an array of
+        // {key, value}. Accept both — the map branch was missing, so every
+        // "General context" row the user typed was silently ignored here.
         const general = [];
-        if (customContext?.general && Array.isArray(customContext.general)) {
-            // New format: array of {key, value}
-            general.push(...customContext.general);
-        } else if (customContext?.domain) {
+        const g = customContext?.general;
+        if (Array.isArray(g)) {
+            general.push(...g.filter((p) => p && p.key && p.value));
+        } else if (g && typeof g === 'object') {
+            for (const [key, value] of Object.entries(g)) {
+                if (key && value) general.push({ key, value: String(value) });
+            }
+        }
+        if (!general.length && customContext?.domain) {
             // Legacy format: single domain string → convert to general
             general.push({ key: 'domain', value: customContext.domain });
         }
