@@ -140,6 +140,9 @@ export class SonioxClient {
             }
 
             console.log('[Soniox] Sending config (model:', configMsg.model, ')');
+            // Ghi config vào token log (bỏ key) — khi "không dịch" thì câu hỏi
+            // đầu tiên luôn là app đã gửi one_way hay two_way.
+            this.onDebugEvent?.({ kind: 'config', config: { ...configMsg, api_key: '***' } });
             newWs.send(JSON.stringify(configMsg));
 
             // Make-before-break: close old WS AFTER new one is ready
@@ -372,6 +375,21 @@ export class SonioxClient {
      * Seamless session reset: open new WS, switch, close old
      * Audio capture continues uninterrupted
      */
+    /**
+     * Áp cài đặt mới vào phiên ĐANG chạy (đổi một chiều ⇄ hai chiều, ngôn
+     * ngữ, thuật ngữ…) bằng một lần reset liền mạch: mở kết nối mới với
+     * config mới rồi mới đóng kết nối cũ. Trước đây cài đặt chỉ được đọc lúc
+     * Start, nên đổi sang hai chiều giữa phiên thì Soniox vẫn ở một chiều và
+     * tiếng Việt về với translation_status "none" — nghe được, không dịch.
+     */
+    reconfigure(partial) {
+        if (!this._config) return false;
+        this._config = { ...this._config, ...partial };
+        if (this._intentionalDisconnect || !this.ws) return false;
+        this._seamlessReset();
+        return true;
+    }
+
     _seamlessReset() {
         if (!this._config || this._intentionalDisconnect) return;
 

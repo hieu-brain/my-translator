@@ -169,6 +169,7 @@ JA: 来週は少し厳しいので、あと2日いただけますか？`;
         opener: {
             openUrl: async (url) => window.open(url, '_blank'),
         },
+        app: { getVersion: async () => '0.0.0-dev' },
         window: {
             availableMonitors: async () => ([{
                 position: { x: 0, y: 0 },

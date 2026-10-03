@@ -93,7 +93,12 @@ class App {
         this._updateStatus('disconnected');
         this._updateStartButton();
 
-        document.getElementById('about-version').textContent = 'v0.9.1 · meeting';
+        // Phiên bản thật từ bundle (tauri.conf.json), hiện trên thanh trên để
+        // biết ngay đang chạy bản build nào — không hardcode nữa.
+        let version = 'dev';
+        try { version = await window.__TAURI__.app.getVersion(); } catch { /* dev:web */ }
+        document.getElementById('about-version').textContent = `v${version} · meeting`;
+        document.getElementById('build-version').textContent = `v${version}`;
 
         this._bindCallDetection();
 
@@ -1195,8 +1200,10 @@ class App {
         };
 
         try {
+            const before = settingsManager.get();
             await settingsManager.save(settings);
             await this._syncAutostart(settings.launch_at_login);
+            this._applyEngineSettingsLive(before, settingsManager.get());
             // Project docs and Backlog issues are cached per meeting; a settings
             // change may well be the user fixing exactly that context.
             contextProviders.invalidate();
@@ -1206,6 +1213,43 @@ class App {
         } catch (err) {
             this._showToast(`Lưu cài đặt thất bại: ${err}`, 'error');
         }
+    }
+
+    /**
+     * Phiên Soniox đang chạy mà cài đặt dịch đổi → reset liền mạch với config
+     * mới, thay vì bắt người dùng Stop/Start (và trước đây là lặng lẽ không
+     * áp dụng gì).
+     */
+    _applyEngineSettingsLive(before, after) {
+        if (!this.isRunning || this.translationMode !== 'soniox') return;
+        const keys = ['translation_type', 'source_language', 'target_language', 'language_a',
+            'language_b', 'language_hints_strict', 'endpoint_delay', 'custom_context'];
+        const changed = keys.filter((k) => JSON.stringify(before?.[k] ?? null) !== JSON.stringify(after?.[k] ?? null));
+        if (!changed.length) return;
+
+        const ok = sonioxClient.reconfigure({
+            sourceLanguage: after.source_language,
+            targetLanguage: after.target_language,
+            customContext: after.custom_context,
+            translationType: after.translation_type || 'one_way',
+            languageA: after.language_a,
+            languageB: after.language_b,
+            languageHintsStrict: after.language_hints_strict || false,
+            endpointDelay: after.endpoint_delay || 3000,
+        });
+        if (!ok) return;
+
+        this.sessionMode = after.translation_type || 'one_way';
+        if (this.sessionMode === 'two_way') {
+            this.sessionSourceLang = after.language_a || 'ja';
+            this.sessionTargetLang = after.language_b || 'vi';
+        } else {
+            this.sessionSourceLang = after.source_language || 'auto';
+            this.sessionTargetLang = after.target_language || 'vi';
+        }
+        this._showToast(this.sessionMode === 'two_way'
+            ? `Đã chuyển sang hai chiều ${(after.language_a || 'ja').toUpperCase()} ⇄ ${(after.language_b || 'vi').toUpperCase()} cho phiên đang chạy`
+            : `Đã áp dụng cài đặt dịch mới cho phiên đang chạy`);
     }
 
     _collectContext() {
