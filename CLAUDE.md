@@ -165,10 +165,16 @@ thanh**, `start_capture` không được gọi.
 - **Tauri v2 chặn API theo capabilities.** Dùng một API mới của plugin (vd
   `dialog.ask`) mà quên thêm quyền vào `src-tauri/capabilities/default.json`
   thì lời gọi bị TỪ CHỐI LÚC CHẠY — không lỗi biên dịch. Đã dính một lần:
-  thiếu `dialog:allow-ask` khiến nút Dừng không hiện hộp thoại, không lưu,
-  không xoá. Mọi nhánh dự phòng của hộp thoại phải **fail-open** (vẫn thực
-  hiện hành động) — nuốt lệnh của người dùng là mất dữ liệu. Lưu ý
+  thiếu `dialog:allow-ask` khiến nút Dừng không hiện hộp thoại. Lưu ý
   `window.confirm()` KHÔNG hiện trong WebView của Tauri, nó trả `false` ngay.
+- **Nút Dừng hỏi bằng bảng chọn trong app** (`#end-session-sheet`, 3 nút:
+  Kết thúc & lưu / Bỏ, không lưu / Họp tiếp) vì hộp thoại gốc chỉ có 2 nút.
+  Lưu xong hoặc bỏ xong đều phải gọi `_resetForNextSession()` (xoá màn hình,
+  reset trợ lý, mở session id mới) — từng thiếu bước này nên nội dung cũ nằm
+  lại và trông như chưa kết thúc. "Bỏ" xoá cả file autosave
+  (`sessionStore.discard()` → `delete_session`). Mọi nhánh dự phòng phải
+  **fail-open** về lưu — nuốt lệnh của người dùng là mất dữ liệu.
+  Test: `npm run dev:web` → nạp vài câu rồi gọi `app.stopSession()`.
 - **Soniox pairing GHÉP THEO ĐỘ TƯƠI, không FIFO** (hai luồng token rời, không
   có id nối cặp). Đo trên log thật: bản dịch đến trong ~0.2s sau câu gốc CỦA NÓ
   → `addTranslation()` ghép với câu gốc MỚI NHẤT còn trong `pairFreshMs` (8s);
