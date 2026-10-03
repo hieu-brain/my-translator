@@ -322,6 +322,7 @@ input[type="range"]::-webkit-slider-thumb{-webkit-appearance:none;width:14px;hei
 .modal-footer{padding:12px 24px 20px;display:flex;justify-content:flex-end}
 .secondary-btn{background:var(--surface-tint-hover);color:var(--on-surface-variant);border:1px solid var(--outline);border-radius:8px;padding:8px 20px;font-size:.85em;cursor:pointer;font-family:inherit}
 .secondary-btn:hover{color:var(--on-surface)}
+#btn-start:disabled{opacity:.6;cursor:wait}
 .end-session-card{max-width:400px}
 .end-session-actions{gap:8px;flex-wrap:wrap}
 .end-session-actions .secondary-btn:first-child{margin-right:auto}

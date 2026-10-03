@@ -518,6 +518,7 @@ class App {
     // ─── Capture lifecycle ─────────────────────────────────
 
     _toggleCapture() {
+        if (this._endingSession) return; // đang lưu phiên trước, chờ xong
         if (this.isRunning) this.stopSession();
         else this.start();
     }
@@ -779,22 +780,54 @@ class App {
             return;
         }
 
-        // One last summary so the note opens with an up-to-date picture rather
-        // than one that stops a couple of minutes before the meeting ended.
-        try { await this.assistant.summarize({ auto: true }); } catch { /* note still saves */ }
+        // Từ đây tới lúc xoá màn hình có thể mất vài giây đến vài chục giây
+        // (tóm tắt lần cuối qua `claude` CLI). Nói rõ cho người dùng và khoá
+        // nút Dừng để không bấm đúp.
+        this._endingSession = true;
+        this._updateStartButton();
+        const deadlineMs = this.finalSummaryDeadlineMs ?? 25_000;
+        this.transcriptUI.showStatusMessage(
+            `Đang tóm tắt lần cuối và lưu… (tối đa ${Math.round(deadlineMs / 1000)} giây)`);
 
-        await this._saveMeetingNote();
+        try {
+            // One last summary so the note opens with an up-to-date picture
+            // rather than one that stops a couple of minutes before the end.
+            // Bounded: a slow CLI must not hold the whole Stop hostage — the
+            // note then carries the most recent summary we already have.
+            const finished = await this._withDeadline(
+                this.assistant.summarize({ auto: true }).catch(() => null), deadlineMs);
+            if (!finished) {
+                this._showToast(
+                    `Tóm tắt cuối chưa xong sau ${Math.round(deadlineMs / 1000)}s — ghi chú dùng bản tóm tắt gần nhất`,
+                    'error');
+            }
 
-        const result = await sessionStore.endSession();
-        if (result === 'failed') {
-            // Giữ nguyên màn hình: người dùng còn copy tay được.
-            this._showToast('Lưu thất bại — session vẫn còn trong bộ nhớ', 'error');
-            return;
+            await this._saveMeetingNote();
+
+            const result = await sessionStore.endSession();
+            if (result === 'failed') {
+                // Giữ nguyên màn hình: người dùng còn copy tay được.
+                this.transcriptUI.removeStatusMessage();
+                this._showToast('Lưu thất bại — session vẫn còn trong bộ nhớ', 'error');
+                return;
+            }
+
+            // Lưu xong mới xoá màn hình. Trước đây bước này thiếu nên nội dung
+            // cũ vẫn nằm đó và trông như "chưa kết thúc".
+            this._resetForNextSession();
+        } finally {
+            this._endingSession = false;
+            this._updateStartButton();
         }
+    }
 
-        // Lưu xong mới xoá màn hình. Trước đây bước này thiếu nên nội dung cũ
-        // vẫn nằm đó và trông như "chưa kết thúc".
-        this._resetForNextSession();
+    /** Resolve true nếu `promise` xong trước `ms`, false nếu hết hạn (promise vẫn chạy). */
+    _withDeadline(promise, ms) {
+        return new Promise((resolve) => {
+            const t = setTimeout(() => resolve(false), ms);
+            promise.then(() => { clearTimeout(t); resolve(true); },
+                         () => { clearTimeout(t); resolve(true); });
+        });
     }
 
     /** Xoá transcript + tóm tắt trên màn hình và mở một session id mới. */
@@ -1391,9 +1424,10 @@ class App {
         const btn = document.getElementById('btn-start');
         play.style.display = this.isRunning ? 'none' : '';
         stop.style.display = this.isRunning ? '' : 'none';
-        label.textContent = this.isRunning ? 'Dừng' : 'Bắt đầu';
+        label.textContent = this._endingSession ? 'Đang kết thúc…' : (this.isRunning ? 'Dừng' : 'Bắt đầu');
         btn.classList.toggle('recording', this.isRunning);
-        document.getElementById('btn-pause').disabled = !this.isRunning;
+        btn.disabled = !!this._endingSession;
+        document.getElementById('btn-pause').disabled = !this.isRunning || !!this._endingSession;
     }
 
     _updateStatus(status) {

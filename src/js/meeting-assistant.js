@@ -106,6 +106,8 @@ export class MeetingAssistant {
 
     reset() {
         this.stop();
+        // Lời gọi tóm tắt đang bay thuộc về phiên cũ: khi về sẽ bị bỏ.
+        this._generation = (this._generation || 0) + 1;
         this.summary = '';
         this.summaryUpdatedAt = null;
         this._summarizedUpto = 0;
@@ -150,6 +152,7 @@ export class MeetingAssistant {
         }
 
         this._summaryInFlight = true;
+        const generation = this._generation || 0;
         if (this.onStatus) this.onStatus('Đang tóm tắt…', 'busy');
 
         try {
@@ -176,6 +179,12 @@ export class MeetingAssistant {
                 timeoutSec: 90,
             });
 
+            if ((this._generation || 0) !== generation) {
+                // reset() đã chạy (phiên đã kết thúc hoặc bị bỏ) — kết quả này
+                // thuộc transcript cũ, dán lên phiên mới là sai.
+                if (this.onStatus) this.onStatus(null, 'ok');
+                return this.summary;
+            }
             this.summary = res.text.trim();
             this.summaryUpdatedAt = Date.now();
             // Only advance after a successful call — a failed summary must not
