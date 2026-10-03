@@ -102,6 +102,10 @@ class App {
         let launch = { autostart: false };
         try { launch = await invoke('get_launch_info'); } catch { /* dev:web */ }
         if (!launch.autostart) await this._showWindow();
+
+        // LaunchAgent phải khớp cài đặt đã lưu, kể cả khi app được cài lại
+        // hoặc settings.json được sửa tay — không chỉ lúc bấm Lưu.
+        this._syncAutostart(!!settings.launch_at_login);
     }
 
     async _showWindow() {
