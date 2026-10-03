@@ -29,3 +29,23 @@ BENCH_PCM_16K=/path/to/your-16k.pcm node benchmark-soniox-endpoint-delay.cjs
 ```
 
 `.env.local` and `results/` are gitignored — never commit keys or raw transcripts.
+
+## compare-with-teams-transcript.mjs
+
+So sánh transcript của app với transcript Teams của **cùng buổi họp** và in 5 số
+để theo dõi tiến bộ giữa các buổi: độ phủ theo người nói, tên riêng/thuật ngữ
+nghe đúng, độ thuần nhãn người nói, tỉ lệ segment đệm, số action có người thật
+và có ticket. Không gọi mạng, không cần `npm install`.
+
+```bash
+node benchmarks/compare-with-teams-transcript.mjs \
+  --teams meeting/original-ja.md   # md xuất từ Teams/Stream, hoặc .vtt
+  --app   meeting/original-vi.md   # note của app (Speaker N / [hh:mm:ss] / > ja) hoặc session .md
+  --terms terms.txt --roster roster.txt   # tuỳ chọn: danh sách term, danh sách người
+  --show-pairs 10                          # in mẫu cặp đã ghép để kiểm tra bằng mắt
+  --json out.json
+```
+
+Ghép dòng theo thời gian (tự dò offset giữa hai đồng hồ, cửa sổ ±25 s) và chung
+≥ 2 cụm 5 ký tự. Dòng Teams dưới 6 ký tự hoặc chỉ là うん/はい không tính vào
+độ phủ. Term và roster của từng dự án nằm ngoài git (`docs/profiles/`).
