@@ -197,6 +197,24 @@ thanh**, `start_capture` không được gọi.
 - **Đo chất lượng sau họp**: `benchmarks/compare-with-teams-transcript.mjs`
   (transcript Teams ↔ note của app, 5 số). Term/roster theo dự án nằm ở
   `docs/profiles/` (gitignore).
+- **App chạy nền, cửa sổ tạo ẨN.** `tauri.conf.json` có `visible: false`;
+  JS gọi `show()` cuối `init()` trừ khi mở lúc đăng nhập (`--autostart`, đọc
+  qua `get_launch_info`). Rust có lưới an toàn: không autostart mà sau 6 s
+  cửa sổ vẫn ẩn thì tự show — đừng bỏ, nếu JS hỏng sớm thì app "mở mà không
+  thấy gì". `✕` / ⌘W chỉ **ẩn** (giữ phiên đang ghi); ⌘Q mới thoát và flush.
+  Bấm icon Dock khi đang ẩn → `RunEvent::Reopen` show lại.
+- **Chạy khi đăng nhập**: `tauri-plugin-autostart` (LaunchAgent, truyền
+  `--autostart`). JS gọi thẳng `invoke('plugin:autostart|enable')` /
+  `disable` / `is_enabled` khi lưu Cài đặt — nhớ 3 quyền `autostart:*` trong
+  capabilities. Mặc định KHÔNG ghim (`pin_on_top`, ⌘P đổi và được nhớ).
+- **Phát hiện cuộc gọi** = micro đang bị app khác dùng
+  (`commands/mic_monitor.rs`, thăm dò CoreAudio
+  `kAudioDevicePropertyDeviceIsRunningSomewhere` mỗi 1,5 s, không cần quyền
+  micro). Rust bắn event `mic-activity {active}`; JS (`_onMicActivity`) chỉ
+  **hỏi** bằng `#call-badge`, không tự ghi — không biết app nào đang dùng
+  micro. Chính app thu micro cũng làm cờ bật → bỏ qua khi `isRunning`.
+  Micro nghỉ liên tục 60 s khi đang ghi → hỏi "Kết thúc & lưu?".
+  Test: dev:web gọi `app._onMicActivity(true/false)`, `app.callEndGraceMs`.
 - **Furigana** currently marks `.ja` text but has no tokenizer. `TranscriptUI`
   exposes `setFuriganaProvider(fn)`; wiring kuromoji.js (bundled offline) or a
   MeCab-backed Rust command is all that is missing.
