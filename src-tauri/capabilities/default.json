@@ -23,6 +23,11 @@
     "core:window:allow-inner-position",
     "core:window:allow-inner-size",
     "dialog:allow-open",
-    "dialog:allow-ask"
+    "dialog:allow-ask",
+    "core:window:allow-unminimize",
+    "core:window:allow-is-visible",
+    "autostart:allow-enable",
+    "autostart:allow-disable",
+    "autostart:allow-is-enabled"
   ]
 }

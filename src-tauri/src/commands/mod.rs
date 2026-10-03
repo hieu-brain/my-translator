@@ -8,3 +8,4 @@ pub mod session_store;
 pub mod settings;
 pub mod token_log;
 pub mod transcript;
+pub mod mic_monitor;

@@ -46,7 +46,7 @@ class App {
         this.assistant = new MeetingAssistant(this.transcriptUI);
 
         this.isRunning = false;
-        this.isPinned = true;
+        this.isPinned = false; // ghim lấy từ settings.pin_on_top trong _applySettings
         this.isCompact = false;
         this.currentSource = 'system';
         this.translationMode = 'soniox';
@@ -94,6 +94,97 @@ class App {
         this._updateStartButton();
 
         document.getElementById('about-version').textContent = 'v0.9.1 · meeting';
+
+        this._bindCallDetection();
+
+        // Cửa sổ được tạo ẩn (tauri.conf.json visible=false) để không nhấp
+        // nháy lúc khôi phục vị trí. Mở lúc đăng nhập thì cứ ẩn, chờ cuộc gọi.
+        let launch = { autostart: false };
+        try { launch = await invoke('get_launch_info'); } catch { /* dev:web */ }
+        if (!launch.autostart) await this._showWindow();
+    }
+
+    async _showWindow() {
+        try {
+            await this.appWindow.show();
+            await this.appWindow.unminimize();
+            await this.appWindow.setFocus();
+        } catch (err) { console.warn('show window failed:', err); }
+    }
+
+    async _hideWindow() {
+        await this._saveWindowPosition().catch(() => {});
+        try { await this.appWindow.hide(); } catch (err) { console.warn('hide window failed:', err); }
+    }
+
+    // ─── Phát hiện cuộc gọi ────────────────────────────────
+
+    /**
+     * Rust bắn `mic-activity` khi thiết bị thu mặc định đổi trạng thái
+     * "đang được app nào đó dùng". Không biết app nào, nên chỉ hỏi.
+     */
+    _bindCallDetection() {
+        this._callEndTimer = null;
+        this._callBadgeDismissedFor = null; // 'start' | 'end' — không hỏi lại cùng một pha
+        document.getElementById('call-badge-yes')?.addEventListener('click', () => this._onCallBadgeYes());
+        document.getElementById('call-badge-no')?.addEventListener('click', () => {
+            this._callBadgeDismissedFor = this._callBadgeKind;
+            this._hideCallBadge();
+        });
+        if (!window.__TAURI__?.event?.listen) return;
+        window.__TAURI__.event.listen('mic-activity', (e) => this._onMicActivity(!!e.payload?.active));
+    }
+
+    _onMicActivity(active) {
+        if (settingsManager.get().call_detection === false) return;
+
+        if (active) {
+            if (this._callEndTimer) { clearTimeout(this._callEndTimer); this._callEndTimer = null; }
+            if (this._callBadgeKind === 'end') this._hideCallBadge();
+            // Chính app đang thu micro cũng làm cờ bật — không hỏi khi đang ghi.
+            if (this.isRunning || this._endingSession) return;
+            if (this._callBadgeDismissedFor === 'start') return;
+            this._showCallBadge('start', 'Hình như có cuộc gọi đang bắt đầu. Bắt đầu ghi và dịch?');
+            this._showWindow();
+            return;
+        }
+
+        // Micro nghỉ: pha "start" đã qua, lần bật tới được hỏi lại.
+        this._callBadgeDismissedFor = null;
+        if (this._callBadgeKind === 'start') this._hideCallBadge();
+        if (!this.isRunning) return;
+        // Đang ghi mà micro nghỉ liên tục 60 s → nhiều khả năng đã rời phòng.
+        // Tắt tiếng trong Teams không làm micro nghỉ, nên 60 s đủ tránh báo nhầm.
+        if (this._callEndTimer) clearTimeout(this._callEndTimer);
+        this._callEndTimer = setTimeout(() => {
+            this._callEndTimer = null;
+            if (!this.isRunning || this._endingSession) return;
+            this._showCallBadge('end', 'Cuộc gọi có vẻ đã kết thúc. Kết thúc và lưu phiên này?');
+            this._showWindow();
+        }, this.callEndGraceMs ?? 60_000);
+    }
+
+    _showCallBadge(kind, text) {
+        const badge = document.getElementById('call-badge');
+        if (!badge) return;
+        this._callBadgeKind = kind;
+        document.getElementById('call-badge-text').textContent = text;
+        document.getElementById('call-badge-yes').textContent = kind === 'end' ? 'Kết thúc & lưu' : 'Bắt đầu ghi';
+        document.getElementById('call-badge-no').textContent = kind === 'end' ? 'Vẫn họp' : 'Bỏ qua';
+        badge.style.display = 'flex';
+    }
+
+    _hideCallBadge() {
+        const badge = document.getElementById('call-badge');
+        if (badge) badge.style.display = 'none';
+        this._callBadgeKind = null;
+    }
+
+    async _onCallBadgeYes() {
+        const kind = this._callBadgeKind;
+        this._hideCallBadge();
+        if (kind === 'end') await this.stopSession();
+        else if (!this.isRunning) await this.start();
     }
 
     async _checkPlatformSupport() {
@@ -116,7 +207,7 @@ class App {
 
     _bindEvents() {
         // Window chrome
-        document.getElementById('btn-close').addEventListener('click', () => this.appWindow.close());
+        document.getElementById('btn-close').addEventListener('click', () => this._hideWindow());
         document.getElementById('btn-minimize')?.addEventListener('click', () => this.appWindow.minimize());
         document.getElementById('btn-pin').addEventListener('click', () => this._togglePin());
         document.getElementById('btn-settings').addEventListener('click', () => this._showView('settings'));
@@ -931,6 +1022,7 @@ class App {
     // ─── Settings ──────────────────────────────────────────
 
     _applySettings(s) {
+        this._applyPin(!!s.pin_on_top);
         this.currentSource = s.audio_source || 'system';
         document.getElementById('select-audio-source').value = this.currentSource;
 
@@ -1014,6 +1106,9 @@ class App {
         document.getElementById('range-max-lines').value = s.max_lines || 5;
         document.getElementById('max-lines-value').textContent = s.max_lines || 5;
         document.getElementById('check-show-original').checked = s.show_original !== false;
+        document.getElementById('check-pin-on-top').checked = !!s.pin_on_top;
+        document.getElementById('check-launch-at-login').checked = !!s.launch_at_login;
+        document.getElementById('check-call-detection').checked = s.call_detection !== false;
         document.getElementById('check-furigana').checked = !!s.furigana_enabled;
 
         // Assistant
@@ -1074,6 +1169,9 @@ class App {
             font_size: parseInt(document.getElementById('range-font-size').value, 10),
             max_lines: parseInt(document.getElementById('range-max-lines').value, 10),
             show_original: document.getElementById('check-show-original').checked,
+            pin_on_top: document.getElementById('check-pin-on-top').checked,
+            launch_at_login: document.getElementById('check-launch-at-login').checked,
+            call_detection: document.getElementById('check-call-detection').checked,
             furigana_enabled: document.getElementById('check-furigana').checked,
             custom_context: this._collectContext(),
 
@@ -1094,6 +1192,7 @@ class App {
 
         try {
             await settingsManager.save(settings);
+            await this._syncAutostart(settings.launch_at_login);
             // Project docs and Backlog issues are cached per meeting; a settings
             // change may well be the user fixing exactly that context.
             contextProviders.invalidate();
@@ -1410,11 +1509,35 @@ class App {
         this.isCompact = toggleManualCompact();
     }
 
+    async _applyPin(on) {
+        this.isPinned = on;
+        try { await this.appWindow.setAlwaysOnTop(on); } catch (err) { console.warn('setAlwaysOnTop:', err); }
+        document.getElementById('btn-pin')?.classList.toggle('active', on);
+    }
+
+    /** Bật/tắt LaunchAgent theo cài đặt. Gọi thẳng command của plugin, không cần JS API riêng. */
+    async _syncAutostart(enabled) {
+        if (!window.__TAURI__) return;
+        try {
+            const isOn = await invoke('plugin:autostart|is_enabled');
+            if (enabled && !isOn) await invoke('plugin:autostart|enable');
+            else if (!enabled && isOn) await invoke('plugin:autostart|disable');
+        } catch (err) {
+            console.error('autostart sync failed:', err);
+            this._showToast(`Không đặt được "Mở khi đăng nhập": ${err}`, 'error');
+        }
+    }
+
     async _togglePin() {
-        this.isPinned = !this.isPinned;
-        await this.appWindow.setAlwaysOnTop(this.isPinned);
-        document.getElementById('btn-pin').classList.toggle('active', this.isPinned);
+        await this._applyPin(!this.isPinned);
         this._showToast(this.isPinned ? 'Đã ghim luôn nổi' : 'Bỏ ghim');
+        // Nhớ lựa chọn cho lần mở sau.
+        const s = settingsManager.get();
+        if (s && s.pin_on_top !== this.isPinned) {
+            settingsManager.save({ ...s, pin_on_top: this.isPinned }).catch(() => {});
+            const cb = document.getElementById('check-pin-on-top');
+            if (cb) cb.checked = this.isPinned;
+        }
     }
 
     _updateStartButton() {
@@ -1737,12 +1860,12 @@ class App {
     }
 
     async _bindCloseHooks() {
+        // Đóng cửa sổ (✕, ⌘W) = ẩn, app vẫn chạy để chờ cuộc gọi và giữ phiên
+        // đang ghi. Thoát hẳn là ⌘Q / Dock → Quit (nhánh app-exit-requested).
         await this.appWindow.onCloseRequested(async (event) => {
             if (this._closing) return;
-            this._closing = true;
             event.preventDefault();
-            await this._flushOnExit();
-            await invoke('exit_app').catch(() => {});
+            await this._hideWindow();
         });
 
         await this.appWindow.listen('app-exit-requested', async () => {

@@ -32,6 +32,9 @@ if (!window.__TAURI__ && location.port === '3111') {
         summary_model: 'claude-haiku-4-5',
         reply_model: 'claude-sonnet-5',
         auto_summary_enabled: true,
+        launch_at_login: false,
+        call_detection: true,
+        pin_on_top: false,
         auto_summary_interval_sec: 120,
         auto_summary_min_segments: 20,
         default_notes_dir: '',
@@ -132,6 +135,13 @@ JA: 来週は少し厳しいので、あと2日いただけますか？`;
                     case 'open_transcript_dir':
                     case 'start_capture':
                     case 'stop_capture':
+                    case 'get_launch_info':
+                        return { autostart: false };
+                    case 'plugin:autostart|enable':
+                    case 'plugin:autostart|disable':
+                        return null;
+                    case 'plugin:autostart|is_enabled':
+                        return false;
                     case 'append_token_log':
                         return '/mock/token-logs/' + (args?.file || 'log.jsonl');
                     case 'start_caption_bridge':
@@ -185,6 +195,11 @@ JA: 来週は少し厳しいので、あと2日いただけますか？`;
                 onCloseRequested: async () => {},
                 onResized: async () => {},
                 listen: async () => {},
+                show: async () => {},
+                hide: async () => {},
+                unminimize: async () => {},
+                setFocus: async () => {},
+                isVisible: async () => true,
             }),
         },
     };

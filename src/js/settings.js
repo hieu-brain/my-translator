@@ -41,6 +41,11 @@ const DEFAULT_SETTINGS = {
   // Caption bridge (Chrome extension đọc live captions của Teams web)
   caption_bridge_port: 8477,
   caption_bridge_token: '',
+
+  // Chạy nền / phát hiện cuộc gọi
+  launch_at_login: false,
+  call_detection: true,
+  pin_on_top: false,
 };
 
 class SettingsManager {

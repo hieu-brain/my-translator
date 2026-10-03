@@ -38,6 +38,11 @@
 
     <!-- ─── LIVE ─── -->
     <div id="transcript-container" class="activity-panel active" data-activity="live" data-tauri-drag-region>
+      <div id="call-badge" class="call-badge" style="display:none" role="status">
+        <span class="call-badge-text" id="call-badge-text"></span>
+        <button type="button" class="call-badge-btn primary" id="call-badge-yes">Bắt đầu ghi</button>
+        <button type="button" class="call-badge-btn" id="call-badge-no">Bỏ qua</button>
+      </div>
       <div id="transcript-content" data-tauri-drag-region>
         <div class="transcript-flow"></div>
         <div class="transcript-placeholder">
@@ -393,6 +398,13 @@
           <div class="slider-field"><span class="field-label">Số dòng tối đa</span><input type="range" id="range-max-lines" min="2" max="15" value="5" /><span id="max-lines-value" class="range-value">5</span></div>
           <label class="checkbox-option" style="margin-top:8px"><input type="checkbox" id="check-show-original" checked /><span class="checkbox-label">Hiện bản gốc (song ngữ)</span></label>
           <label class="checkbox-option"><input type="checkbox" id="check-furigana" checked /><span class="checkbox-label">Furigana trên chữ Hán</span></label>
+          <label class="checkbox-option"><input type="checkbox" id="check-pin-on-top" /><span class="checkbox-label">Ghim luôn nổi khi mở (⌘P đổi nhanh)</span></label>
+        </div>
+        <div class="settings-section">
+          <span class="hint">Chạy nền</span>
+          <label class="checkbox-option" style="margin-top:6px"><input type="checkbox" id="check-launch-at-login" /><span class="checkbox-label">Mở khi đăng nhập — chạy ẩn, bấm icon trong Dock để hiện</span></label>
+          <label class="checkbox-option"><input type="checkbox" id="check-call-detection" checked /><span class="checkbox-label">Phát hiện cuộc gọi — hỏi "Bắt đầu ghi?" khi app khác bắt đầu dùng micro</span></label>
+          <p class="hint hint-dim" style="margin-top:6px">Nút ✕ chỉ ẩn cửa sổ, app vẫn chạy để chờ cuộc gọi. Thoát hẳn: ⌘Q.</p>
         </div>
       </div>
 

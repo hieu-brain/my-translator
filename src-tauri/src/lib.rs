@@ -66,7 +66,30 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
+        // Chạy khi đăng nhập qua LaunchAgent; `--autostart` cho JS biết để
+        // khởi động ẩn, chỉ chờ cuộc gọi.
+        .plugin(tauri_plugin_autostart::init(
+            tauri_plugin_autostart::MacosLauncher::LaunchAgent,
+            Some(vec!["--autostart"]),
+        ))
         .setup(|app| {
+            commands::mic_monitor::start(app.handle().clone());
+            // Cửa sổ tạo ra ẩn (tauri.conf.json visible=false) và JS sẽ show
+            // sau khi khởi tạo xong — trừ khi mở lúc đăng nhập. Lưới an toàn:
+            // nếu JS hỏng trước khi kịp show thì vẫn hiện cửa sổ sau 6 giây,
+            // không để app "mở mà không thấy gì".
+            if !std::env::args().any(|a| a == "--autostart") {
+                use tauri::Manager;
+                let handle = app.handle().clone();
+                std::thread::spawn(move || {
+                    std::thread::sleep(std::time::Duration::from_secs(6));
+                    if let Some(win) = handle.get_webview_window("main") {
+                        if !win.is_visible().unwrap_or(true) {
+                            let _ = win.show();
+                        }
+                    }
+                });
+            }
             // Dev builds (compiled with the `devtools` feature): auto-open the WebView
             // inspector so JS/console errors are visible. Never compiled into release.
             #[cfg(feature = "devtools")]
@@ -124,12 +147,25 @@ pub fn run() {
             commands::project_context::save_meeting_note,
             commands::project_context::open_path_in_finder,
             commands::token_log::append_token_log,
+            commands::mic_monitor::get_launch_info,
             get_platform_info,
             exit_app,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
         .run(|app_handle, event| {
+            // Dock icon click while the window is hidden (closed with ✕ or
+            // started at login) → bring it back.
+            #[cfg(target_os = "macos")]
+            if let tauri::RunEvent::Reopen { .. } = event {
+                use tauri::Manager;
+                if let Some(win) = app_handle.get_webview_window("main") {
+                    let _ = win.show();
+                    let _ = win.unminimize();
+                    let _ = win.set_focus();
+                }
+                return;
+            }
             // Cmd+Q and Dock → Quit fire app-level ExitRequested (not the
             // window's onCloseRequested). Prevent the first exit, ask the
             // frontend to flush the session, and force-exit after a deadline so

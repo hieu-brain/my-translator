@@ -122,6 +122,16 @@ pub struct Settings {
     pub caption_bridge_port: u16,
     /// Token dùng chung với extension. Sinh tự động lần đầu.
     pub caption_bridge_token: String,
+
+    // ── Chạy nền / phát hiện cuộc gọi ──────────────────────────────
+    /// Mở app khi đăng nhập (LaunchAgent qua tauri-plugin-autostart), khởi
+    /// động ẩn và chỉ hiện khi phát hiện cuộc gọi.
+    pub launch_at_login: bool,
+    /// Hỏi "Bắt đầu ghi?" khi app khác bắt đầu dùng micro.
+    pub call_detection: bool,
+    /// Ghim luôn nổi. Mặc định tắt — app chạy nền từ lúc đăng nhập mà luôn
+    /// nổi trên mọi cửa sổ thì phiền; ⌘P bật lại và được nhớ.
+    pub pin_on_top: bool,
 }
 
 impl Default for Settings {
@@ -163,6 +173,9 @@ impl Default for Settings {
             // trong Default thì mỗi lần khởi động app lại ra token khác (serde
             // dùng Default để bù field thiếu), và extension sẽ mất kết nối.
             caption_bridge_token: String::new(),
+            launch_at_login: false,
+            call_detection: true,
+            pin_on_top: false,
         }
     }
 }
