@@ -215,6 +215,18 @@ thanh**, `start_capture` không được gọi.
   micro. Chính app thu micro cũng làm cờ bật → bỏ qua khi `isRunning`.
   Micro nghỉ liên tục 60 s khi đang ghi → hỏi "Kết thúc & lưu?".
   Test: dev:web gọi `app._onMicActivity(true/false)`, `app.callEndGraceMs`.
+- **Cài đặt dịch đổi giữa phiên phải áp dụng ngay.** Config Soniox chỉ được
+  đọc lúc Start; đổi một chiều → hai chiều trong Cài đặt khi đang chạy từng
+  không có tác dụng gì: tiếng Việt về với `translation_status: none` (nghe
+  được, không dịch). Giờ `_saveSettingsFromForm` → `_applyEngineSettingsLive`
+  → `sonioxClient.reconfigure()` (reset liền mạch với config mới). Token log
+  ghi cả `{kind:'config'}` (bỏ key) — khi "không dịch", xem dòng đó trước.
+  Kiểm chứng two_way bằng audio tổng hợp (`say -v Linh` / `-v Kyoko` →
+  `afconvert` 16k mono → stream WS): VI→JA và JA→VI đều dịch với đúng config
+  app gửi.
+- **Phiên bản hiện trên thanh trên** (`#build-version`, từ
+  `window.__TAURI__.app.getVersion()`), không hardcode. Bump 4 file:
+  `package.json`, `src-tauri/{Cargo.toml,Cargo.lock,tauri.conf.json}`.
 - **Furigana** currently marks `.ja` text but has no tokenizer. `TranscriptUI`
   exposes `setFuriganaProvider(fn)`; wiring kuromoji.js (bundled offline) or a
   MeCab-backed Rust command is all that is missing.
